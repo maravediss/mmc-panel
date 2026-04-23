@@ -236,6 +236,12 @@ async function processEvent(ev, commByEmail, counters) {
 
   // Si NO encontramos lead → crear uno nuevo con los datos del body Bookings
   if (!leadId && leadData && (leadData.email || leadData.telefono || leadData.nombre)) {
+    // Resolver modelo_id si hay modelo raw
+    let modeloId = null;
+    if (leadData.modelo) {
+      const { data: resolved } = await sb.rpc('mmc_resolve_model', { raw: leadData.modelo });
+      if (resolved) modeloId = resolved;
+    }
     const { data: inserted, error } = await sb
       .from('mmc_leads')
       .insert({
@@ -246,6 +252,7 @@ async function processEvent(ev, commByEmail, counters) {
         email: leadData.email || null,
         telefono: leadData.telefono || null,
         modelo_raw: leadData.modelo || null,
+        modelo_id: modeloId,
         status: 'appointment',
         notas: `Creado automáticamente desde Bookings event ${ev.id}`,
       })

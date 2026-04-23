@@ -38,10 +38,23 @@ export default async function LeadDetailPage({
 
   const { data: lead } = await supabase
     .from('mmc_leads')
-    .select('*')
+    .select('*, modelo:mmc_models(id, name, family, cc)')
     .eq('id', params.id)
     .maybeSingle();
   if (!lead) notFound();
+
+  // Margen estimado del modelo (si se vendiera hoy)
+  let margenEstimado: number | null = null;
+  if (lead.modelo_id) {
+    const { data: margenRow } = await supabase
+      .from('mmc_model_margins')
+      .select('margin_eur, year')
+      .eq('model_id', lead.modelo_id)
+      .order('year', { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+    if (margenRow) margenEstimado = Number(margenRow.margin_eur);
+  }
 
   const { data: calls } = await supabase
     .from('mmc_calls')
@@ -103,10 +116,20 @@ export default async function LeadDetailPage({
               </div>
             </div>
             <div className="text-right">
-              {lead.modelo_raw && (
+              {(lead.modelo?.name || lead.modelo_raw) && (
                 <div className="inline-flex items-center gap-1.5 text-sm font-medium">
                   <Bike className="h-4 w-4 text-ymc-red" />
-                  {lead.modelo_raw}
+                  {lead.modelo?.name || lead.modelo_raw}
+                </div>
+              )}
+              {lead.modelo?.name && lead.modelo_raw && lead.modelo.name !== lead.modelo_raw && (
+                <div className="text-[10px] text-muted-foreground italic mt-0.5">
+                  forma: "{lead.modelo_raw}"
+                </div>
+              )}
+              {margenEstimado != null && (
+                <div className="text-xs text-ymc-red font-medium mt-1">
+                  Margen est. {margenEstimado.toLocaleString('es-ES', { maximumFractionDigits: 0 })} €
                 </div>
               )}
               {lead.formulario && (

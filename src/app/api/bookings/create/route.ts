@@ -54,7 +54,9 @@ export async function POST(req: Request) {
   const [{ data: lead }, { data: commercial }] = await Promise.all([
     admin
       .from('mmc_leads')
-      .select('id, nombre, email, telefono, modelo_raw, formulario, origen, mensajes_preferencias')
+      .select(
+        'id, nombre, email, telefono, modelo_raw, modelo_id, formulario, origen, mensajes_preferencias, modelo:mmc_models(id, name, family, cc)'
+      )
       .eq('id', lead_id)
       .maybeSingle(),
     admin
@@ -63,6 +65,19 @@ export async function POST(req: Request) {
       .eq('id', commercial_id)
       .maybeSingle(),
   ]);
+
+  // Margen estimado
+  let margenEstimado: number | null = null;
+  if (lead?.modelo_id) {
+    const { data: m } = await admin
+      .from('mmc_model_margins')
+      .select('margin_eur')
+      .eq('model_id', lead.modelo_id)
+      .order('year', { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+    if (m) margenEstimado = Number(m.margin_eur);
+  }
 
   if (!lead) return NextResponse.json({ error: 'lead not found' }, { status: 404 });
   if (!commercial) return NextResponse.json({ error: 'commercial not found' }, { status: 404 });
@@ -79,14 +94,23 @@ export async function POST(req: Request) {
   const startIso = format(start, "yyyy-MM-dd'T'HH:mm:ss");
   const endIso = format(end, "yyyy-MM-dd'T'HH:mm:ss");
 
-  const subject = `${TIPO_LABEL[tipo]} - ${lead.nombre}${lead.modelo_raw ? ' - ' + lead.modelo_raw : ''}`;
+  // Modelo mostrado: oficial si hay, raw si no
+  const modeloDisplay = (lead as any).modelo?.name || lead.modelo_raw || null;
+  const subject = `${TIPO_LABEL[tipo]} - ${lead.nombre}${modeloDisplay ? ' - ' + modeloDisplay : ''}`;
   const emailBody = [
     '<h3>Información del lead</h3>',
     `<p><strong>Nombre:</strong> ${escapeHtml(lead.nombre)}</p>`,
     lead.telefono ? `<p><strong>Teléfono:</strong> ${escapeHtml(lead.telefono)}</p>` : '',
     lead.email ? `<p><strong>Email:</strong> ${escapeHtml(lead.email)}</p>` : '',
-    lead.modelo_raw
-      ? `<p><strong>Modelo de interés:</strong> ${escapeHtml(lead.modelo_raw)}</p>`
+    modeloDisplay
+      ? `<p><strong>Modelo de interés:</strong> ${escapeHtml(modeloDisplay)}${
+          (lead as any).modelo?.name && lead.modelo_raw && (lead as any).modelo.name !== lead.modelo_raw
+            ? ` <em style="color:#888">(forma original: ${escapeHtml(lead.modelo_raw)})</em>`
+            : ''
+        }</p>`
+      : '',
+    margenEstimado != null
+      ? `<p><strong>💰 Margen estimado si se vende:</strong> ${margenEstimado.toLocaleString('es-ES', { maximumFractionDigits: 2 })} €</p>`
       : '',
     lead.origen ? `<p><strong>Origen:</strong> ${escapeHtml(lead.origen)}</p>` : '',
     lead.formulario

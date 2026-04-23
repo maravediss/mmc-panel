@@ -198,7 +198,18 @@ async function run() {
     const paso3 = r[COL.paso3];
     const fechaCompra = parseDate(r[COL.fechaCompra]);
     const newStatus = leadStatusFrom(paso1, paso3, fechaCompra);
-    await sb.from('mmc_leads').update({ status: newStatus }).eq('id', leadId);
+
+    // Resolver modelo_id si aún no lo tiene
+    const modeloRaw = r[COL.modelo]?.trim();
+    let modeloId = null;
+    if (modeloRaw) {
+      const { data: resolved } = await sb.rpc('mmc_resolve_model', { raw: modeloRaw });
+      if (resolved) modeloId = resolved;
+    }
+
+    const leadUpdate = { status: newStatus };
+    if (modeloId) leadUpdate.modelo_id = modeloId;
+    await sb.from('mmc_leads').update(leadUpdate).eq('id', leadId);
 
     // Cita si paso1 = cita_*
     const apptType = apptTypeFromPaso1(paso1);
@@ -248,10 +259,15 @@ async function run() {
         .select('id')
         .eq('lead_id', leadId)
         .maybeSingle();
+
+      // Resolver model_id de la venta
+      const { data: saleModelId } = await sb.rpc('mmc_resolve_model', { raw: modeloVendido });
+
       const payload = {
         lead_id: leadId,
         commercial_id: commercialId,
         model_raw: modeloVendido,
+        model_id: saleModelId || null,
         fecha_compra: fechaCompra.toISOString().slice(0, 10),
         margen_eur: margenNum,
         notas: r[COL.notas]?.trim() || null,

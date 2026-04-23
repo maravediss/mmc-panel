@@ -69,7 +69,7 @@ export default async function DashboardPage() {
       .limit(8),
     supabase.from('mmc_leads').select('origen'),
     supabase.from('mmc_leads').select('status'),
-    supabase.from('mmc_sales').select('model_raw'),
+    supabase.from('mmc_sales').select('model_raw, model:mmc_models(name)'),
     supabase.from('mmc_sales').select('commercial_id, margen_eur, commercial:mmc_commercials(name)'),
     supabase.from('mmc_calls').select('qcode_type, qcode_description'),
     supabase.from('mmc_calls').select('agent_name, talk_time_s'),
@@ -77,7 +77,8 @@ export default async function DashboardPage() {
 
   const origenDist = countBy(allOrigins ?? [], 'origen');
   const statusDist = countBy(allStatus ?? [], 'status');
-  const modelsDist = countByFlex(allModels ?? [], (r: any) => r.model_raw || 'Sin especificar');
+  // Usar modelo OFICIAL (normalizado) para el dashboard; fallback al raw si no se resolvió
+  const modelsDist = countByFlex(allModels ?? [], (r: any) => r.model?.name || r.model_raw || 'Sin especificar');
   const qcodeDist = countByFlex(allQcodes ?? [], (r: any) => r.qcode_description || r.qcode_type || 'Otro');
   const agentStats = aggregateAgents(allAgents ?? []);
   const commercialStats = aggregateCommercials(allCommSales ?? []);
