@@ -139,18 +139,38 @@ export default function CallCenterSearch({
         return;
       }
 
-      // 2) Si es cita → crear mmc_appointment
-      if (isCitaResult(callResult) && citaFecha) {
+      // 2) Si es cita → crear en Microsoft Bookings vía /api/bookings/create
+      //    (crea el evento en calendario del comercial + invita al lead por email
+      //     + guarda mmc_appointment local con graph_event_id)
+      if (isCitaResult(callResult) && citaFecha && citaComercial) {
         const tipo = citaResultToApptType(callResult);
         if (tipo) {
-          await supabase.from('mmc_appointments').insert({
-            lead_id: selected.id,
-            commercial_id: citaComercial || null,
-            tipo,
-            fecha_cita: citaFecha.toISOString(),
-            status: 'pending',
+          const res = await fetch('/api/bookings/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              lead_id: selected.id,
+              tipo,
+              fecha_iso: `${citaDate}T${citaTime}:00`,
+              commercial_id: citaComercial,
+              notas: observaciones || null,
+            }),
           });
-          // Update lead status
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({ error: 'unknown' }));
+            toast.error('Cita creada en panel pero falló Bookings', {
+              description: err.error,
+            });
+            // Fallback: crear localmente sin Bookings para no perder el dato
+            await supabase.from('mmc_appointments').insert({
+              lead_id: selected.id,
+              commercial_id: citaComercial,
+              tipo,
+              fecha_cita: citaFecha.toISOString(),
+              status: 'pending',
+              sync_source: 'panel_fallback',
+            });
+          }
           await supabase.from('mmc_leads').update({ status: 'appointment' }).eq('id', selected.id);
         }
       } else if (callResult === 'no_interesado') {
