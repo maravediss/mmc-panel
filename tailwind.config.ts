@@ -17,6 +17,7 @@ const config: Config = {
     extend: {
       fontFamily: {
         sans: ['var(--font-sans)', 'system-ui', 'sans-serif'],
+        display: ['var(--font-display)', 'system-ui', 'sans-serif'],
       },
       colors: {
         border: 'hsl(var(--border))',
@@ -51,6 +52,14 @@ const config: Config = {
         card: {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
+        },
+        // Colores corporativos Yamaha / YMC
+        ymc: {
+          red: '#e30613',     // rojo oficial Yamaha / YMC
+          redDark: '#b00510', // rojo hover/active
+          redLight: '#fce9eb',// rojo sutil para backgrounds
+          graphite: '#464a51',// gris oscuro del logo
+          grey: '#848282',    // gris medio del logo
         },
       },
       borderRadius: {

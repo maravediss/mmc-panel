@@ -1,5 +1,13 @@
 import Link from 'next/link';
-import { Calendar, Home, Users, BarChart3 } from 'lucide-react';
+import Image from 'next/image';
+import {
+  Calendar,
+  Home,
+  Users,
+  BarChart3,
+  Headphones,
+  Bike,
+} from 'lucide-react';
 import type { Commercial } from '@/lib/types';
 import SignOutButton from './SignOutButton';
 
@@ -10,34 +18,63 @@ export default async function AppShell({
   commercial: Commercial | null;
   children: React.ReactNode;
 }) {
-  const isManager = commercial?.role === 'admin' || commercial?.role === 'gerente';
+  const role = commercial?.role;
+  const isManager = role === 'admin' || role === 'gerente';
+  const isOperator = role === 'operadora';
+  const isCommercial = role === 'comercial';
 
   return (
     <div className="min-h-screen flex bg-slate-50">
       {/* Sidebar */}
-      <aside className="hidden md:flex md:w-60 md:flex-col border-r bg-white">
-        <div className="px-6 py-5 border-b">
-          <h1 className="text-lg font-semibold tracking-tight">MMC Panel</h1>
-          <p className="text-xs text-muted-foreground">Yamaha Málaga Center</p>
+      <aside className="hidden md:flex md:w-64 md:flex-col border-r bg-white">
+        <div className="px-5 py-5 border-b">
+          <Link href="/" className="block">
+            <Image
+              src="/brand/ymc-logo-horizontal.svg"
+              alt="Yamaha Málaga Center"
+              width={200}
+              height={28}
+              priority
+              className="h-7 w-auto"
+            />
+          </Link>
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground mt-2">
+            Panel de gestión
+          </p>
         </div>
-        <nav className="flex-1 px-3 py-4 space-y-1 text-sm">
+        <nav className="flex-1 px-3 py-4 space-y-0.5 text-sm">
           <NavLink href="/" icon={<Home className="h-4 w-4" />} label="Inicio" />
-          <NavLink href="/appointments" icon={<Calendar className="h-4 w-4" />} label="Mis citas" />
+          {(isCommercial || isManager) && (
+            <NavLink
+              href="/appointments"
+              icon={<Calendar className="h-4 w-4" />}
+              label="Mis citas"
+            />
+          )}
+          {(isOperator || isManager) && (
+            <NavLink
+              href="/call-center"
+              icon={<Headphones className="h-4 w-4" />}
+              label="Call center"
+            />
+          )}
           {isManager && (
             <>
               <NavLink href="/leads" icon={<Users className="h-4 w-4" />} label="Leads" />
               <NavLink
                 href="/dashboard"
                 icon={<BarChart3 className="h-4 w-4" />}
-                label="Dashboard"
+                label="Analítica"
               />
             </>
           )}
         </nav>
-        <div className="px-3 py-4 border-t">
+        <div className="px-3 py-4 border-t space-y-2">
           {commercial && (
-            <div className="px-3 py-2 text-sm mb-2">
-              <div className="font-medium">{commercial.display_name || commercial.name}</div>
+            <div className="px-3 py-2 text-sm">
+              <div className="font-medium truncate">
+                {commercial.display_name || commercial.name}
+              </div>
               <div className="text-xs text-muted-foreground capitalize">{commercial.role}</div>
             </div>
           )}
@@ -48,10 +85,17 @@ export default async function AppShell({
       {/* Main */}
       <main className="flex-1 min-w-0">
         <div className="md:hidden sticky top-0 z-10 bg-white border-b px-4 py-3 flex items-center justify-between">
-          <h1 className="text-base font-semibold">MMC Panel</h1>
+          <Image
+            src="/brand/ymc-logo-horizontal.svg"
+            alt="YMC"
+            width={160}
+            height={22}
+            priority
+            className="h-6 w-auto"
+          />
           <SignOutButton compact />
         </div>
-        <div className="p-4 md:p-8 max-w-6xl mx-auto">{children}</div>
+        <div className="p-4 md:p-8 max-w-7xl mx-auto">{children}</div>
       </main>
     </div>
   );
@@ -69,7 +113,7 @@ function NavLink({
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 rounded-md px-3 py-2 text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+      className="flex items-center gap-3 rounded-md px-3 py-2 text-slate-700 hover:bg-ymc-redLight hover:text-ymc-red transition-colors"
     >
       {icon}
       <span>{label}</span>

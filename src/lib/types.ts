@@ -25,7 +25,51 @@ export type NoSaleReason =
   | 'financiacion_rechazada'
   | 'ya_no_quiere'
   | 'otro';
-export type CommercialRole = 'comercial' | 'gerente' | 'admin';
+export type CommercialRole = 'comercial' | 'gerente' | 'admin' | 'operadora';
+
+export type CallResult =
+  | 'no_contactado'
+  | 'no_contesta'
+  | 'contacto_erroneo'
+  | 'cuelga_al_identificarse'
+  | 'no_interesado'
+  | 'cita_taller'
+  | 'cita_concesionario'
+  | 'cita_prueba_moto'
+  | 'quiere_mas_info_concesionario'
+  | 'otro';
+
+export type NoInterestReason =
+  | 'ya_comprada_otro_sitio'
+  | 'precio_alto'
+  | 'vive_lejos'
+  | 'solo_informacion'
+  | 'ya_no_quiere';
+
+export interface Call {
+  id: string;
+  lead_id: string | null;
+  bq_log_id: number;
+  bq_queue_id: number;
+  telefono: string | null;
+  telefono_normalized: string | null;
+  agent_name: string | null;
+  qcode: number | null;
+  qcode_description: string | null;
+  qcode_type: string | null;
+  service_name: string | null;
+  load_name: string | null;
+  scheduled_datetime: string | null;
+  ringing_time_s: number | null;
+  talk_time_s: number | null;
+  handling_time_s: number | null;
+  wait_time_s: number | null;
+  hangup_type: string | null;
+  station: number | null;
+  call_at: string;
+  recording_url: string | null;
+  created_at: string;
+}
 
 export interface Lead {
   id: string;
