@@ -10,7 +10,6 @@ import {
   Phone,
   Mail,
   Bike,
-  Calendar,
   History,
   Search,
   Loader2,
@@ -203,7 +202,7 @@ function Argumentario() {
     e.stopPropagation();
     setChecked((prev) => {
       const next = new Set(prev);
-      next.has(i) ? next.delete(i) : next.add(i);
+      if (next.has(i)) { next.delete(i); } else { next.add(i); }
       return next;
     });
   }
@@ -297,7 +296,7 @@ export default function OperatorWorkspace({
   candidates,
   comerciales,
 }: {
-  commercial: { id: string; name: string; display_name: string; role: string };
+  commercial: { id: string; name: string; display_name: string | null; role: string };
   todayReports: Report[];
   weekReports: Report[];
   prevWeekReports: Report[];
@@ -308,7 +307,6 @@ export default function OperatorWorkspace({
 }) {
   const router = useRouter();
   const supabase = createClient();
-
   const [tel, setTel] = useState(initialQuery);
   const [selected, setSelected] = useState<Lead | null>(initialLead);
   const [calls, setCalls] = useState<any[]>([]);
@@ -331,9 +329,10 @@ export default function OperatorWorkspace({
 
   useEffect(() => {
     if (!selected) { setCalls([]); return; }
+    const sb = createClient();
     (async () => {
       setLoadingHistory(true);
-      const { data } = await supabase
+      const { data } = await sb
         .from('mmc_calls')
         .select('id, call_at, agent_name, qcode_description, qcode_type, talk_time_s')
         .eq('lead_id', selected.id)
