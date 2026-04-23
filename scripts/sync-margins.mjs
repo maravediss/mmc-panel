@@ -176,6 +176,7 @@ const MANUAL_ALIASES = [
   { alias: 'tenere', target: 'TÉNÉRÉ 700 / 35kw / LOW' },
   { alias: 'TÉNÉRÉ RALLY', target: 'TÉNÉRÉ 700 Rally' },
   { alias: 'MOTO ENDURO', target: 'TÉNÉRÉ 700 / 35kw / LOW' },
+  { alias: 'tenere de prueba', target: 'TÉNÉRÉ 700 / 35kw / LOW' },
   // Off-road
   { alias: 'WR125', target: 'WR125R' },
   { alias: 'wr125r', target: 'WR125R' },
@@ -211,6 +212,9 @@ const MANUAL_ALIASES = [
 const EXTRA_MODELS = [
   { name: 'Crosscore RC', family: 'bicicleta', cc: null, is_display: false, is_35kw: false, is_anniv: false },
   { name: 'Wabash RT', family: 'bicicleta', cc: null, is_display: false, is_35kw: false, is_anniv: false },
+  // Modelo "catch-all" para leads que eligieron "OTRO MODELO" en el form
+  // o donde la operadora no especificó modelo. Sin margen (no aplica).
+  { name: 'Otro no especificado', family: 'otro', cc: null, is_display: false, is_35kw: false, is_anniv: false },
 ];
 const EXTRA_ALIASES = [
   { alias: 'Crosscore RC', target: 'Crosscore RC' },
@@ -220,6 +224,17 @@ const EXTRA_ALIASES = [
   { alias: 'Crosscore 2 UDS', target: 'Crosscore RC' },
   { alias: 'Crosscore 6 uds', target: 'Crosscore RC' },
   { alias: 'Wabash RT', target: 'Wabash RT' },
+  // Variantes de "otro" del formulario web → todos a "Otro no especificado"
+  { alias: 'OTRO MODELO', target: 'Otro no especificado' },
+  { alias: 'Otro modelo', target: 'Otro no especificado' },
+  { alias: 'otro_modelo', target: 'Otro no especificado' },
+  { alias: 'OTRO', target: 'Otro no especificado' },
+  { alias: 'otro', target: 'Otro no especificado' },
+  { alias: 'Otro', target: 'Otro no especificado' },
+  { alias: 'X', target: 'Otro no especificado' },
+  { alias: 'x', target: 'Otro no especificado' },
+  { alias: '- Elige modelo con promo --', target: 'Otro no especificado' },
+  { alias: '-- Elegir una opción --', target: 'Otro no especificado' },
 ];
 
 // ---------- run ----------
