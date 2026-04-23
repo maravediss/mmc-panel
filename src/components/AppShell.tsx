@@ -1,15 +1,9 @@
 import Link from 'next/link';
 import Image from 'next/image';
-import {
-  Calendar,
-  Home,
-  Users,
-  BarChart3,
-  Headphones,
-  Bike,
-} from 'lucide-react';
+import { Calendar, Home, Users, BarChart3, Headphones } from 'lucide-react';
 import type { Commercial } from '@/lib/types';
 import SignOutButton from './SignOutButton';
+import MobileNav from './MobileNav';
 
 export default async function AppShell({
   commercial,
@@ -25,7 +19,7 @@ export default async function AppShell({
 
   return (
     <div className="min-h-screen flex bg-slate-50">
-      {/* Sidebar */}
+      {/* Sidebar desktop */}
       <aside className="hidden md:flex md:w-64 md:flex-col border-r bg-white">
         <div className="px-5 py-5 border-b">
           <Link href="/" className="block">
@@ -45,11 +39,7 @@ export default async function AppShell({
         <nav className="flex-1 px-3 py-4 space-y-0.5 text-sm">
           <NavLink href="/" icon={<Home className="h-4 w-4" />} label="Inicio" />
           {(isCommercial || isManager) && (
-            <NavLink
-              href="/appointments"
-              icon={<Calendar className="h-4 w-4" />}
-              label="Mis citas"
-            />
+            <NavLink href="/appointments" icon={<Calendar className="h-4 w-4" />} label="Mis citas" />
           )}
           {(isOperator || isManager) && (
             <NavLink
@@ -84,15 +74,18 @@ export default async function AppShell({
 
       {/* Main */}
       <main className="flex-1 min-w-0">
-        <div className="md:hidden sticky top-0 z-10 bg-white border-b px-4 py-3 flex items-center justify-between">
-          <Image
-            src="/brand/ymc-logo-horizontal.svg"
-            alt="YMC"
-            width={160}
-            height={22}
-            priority
-            className="h-6 w-auto"
-          />
+        <div className="md:hidden sticky top-0 z-30 bg-white border-b px-4 py-3 flex items-center justify-between gap-3">
+          <MobileNav commercial={commercial} />
+          <Link href="/" className="flex-1">
+            <Image
+              src="/brand/ymc-logo-horizontal.svg"
+              alt="YMC"
+              width={160}
+              height={22}
+              priority
+              className="h-6 w-auto"
+            />
+          </Link>
           <SignOutButton compact />
         </div>
         <div className="p-4 md:p-8 max-w-7xl mx-auto">{children}</div>
