@@ -41,7 +41,14 @@ export default async function AppShell({
           {(isCommercial || isManager) && (
             <NavLink href="/appointments" icon={<Calendar className="h-4 w-4" />} label="Mis citas" />
           )}
-          {(isOperator || isManager) && (
+          {isOperator && (
+            <NavLink
+              href="/operator"
+              icon={<Headphones className="h-4 w-4" />}
+              label="Mi panel"
+            />
+          )}
+          {isManager && (
             <NavLink
               href="/call-center"
               icon={<Headphones className="h-4 w-4" />}

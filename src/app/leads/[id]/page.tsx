@@ -38,10 +38,21 @@ export default async function LeadDetailPage({
 
   const { data: lead } = await supabase
     .from('mmc_leads')
-    .select('*, modelo:mmc_models(id, name, family, cc)')
+    .select('*')
     .eq('id', params.id)
     .maybeSingle();
   if (!lead) notFound();
+
+  // FK dropped by CASCADE in schema_v5 — fetch model separately
+  let modelo: { id: string; name: string; family: string; cc: number | null } | null = null;
+  if (lead.modelo_id) {
+    const { data: m } = await supabase
+      .from('mmc_models')
+      .select('id, name, family, cc')
+      .eq('id', lead.modelo_id)
+      .maybeSingle();
+    modelo = m ?? null;
+  }
 
   // Margen estimado del modelo (si se vendiera hoy)
   let margenEstimado: number | null = null;
@@ -116,13 +127,13 @@ export default async function LeadDetailPage({
               </div>
             </div>
             <div className="text-right">
-              {(lead.modelo?.name || lead.modelo_raw) && (
+              {(modelo?.name || lead.modelo_raw) && (
                 <div className="inline-flex items-center gap-1.5 text-sm font-medium">
                   <Bike className="h-4 w-4 text-ymc-red" />
-                  {lead.modelo?.name || lead.modelo_raw}
+                  {modelo?.name || lead.modelo_raw}
                 </div>
               )}
-              {lead.modelo?.name && lead.modelo_raw && lead.modelo.name !== lead.modelo_raw && (
+              {modelo?.name && lead.modelo_raw && modelo.name !== lead.modelo_raw && (
                 <div className="text-[10px] text-muted-foreground italic mt-0.5">
                   forma: "{lead.modelo_raw}"
                 </div>

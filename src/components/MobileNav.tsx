@@ -65,7 +65,15 @@ export default function MobileNav({ commercial }: { commercial: Commercial | nul
                   onClose={() => setOpen(false)}
                 />
               )}
-              {(isOperator || isManager) && (
+              {isOperator && (
+                <Item
+                  href="/operator"
+                  icon={<Headphones className="h-4 w-4" />}
+                  label="Mi panel"
+                  onClose={() => setOpen(false)}
+                />
+              )}
+              {isManager && (
                 <Item
                   href="/call-center"
                   icon={<Headphones className="h-4 w-4" />}
