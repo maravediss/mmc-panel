@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useTransition } from 'react';
+import { useState, useEffect, useTransition, useRef } from 'react';
 import Link from 'next/link';
 import { format, addDays } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import {
   Search, Phone, Mail, Bike, ArrowLeft, ChevronRight,
   Edit2, CheckCircle2, ExternalLink,
-  MapPin, Hash, Smartphone, User, Loader2,
+  MapPin, Hash, Smartphone, User, Loader2, AlertCircle,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,7 @@ type Lead = {
   mensajes_preferencias: string | null; seleccionar_peticion: string | null;
   fecha_entrada: string; status: string;
   bq_total_attempts: number | null; bq_last_call_at: string | null; bq_last_agent: string | null;
+  provincia: string | null; tipo_interes: string | null;
 };
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -63,6 +64,16 @@ const DONE_NO = [
   () => 'Tranquila, forma parte del proceso. Ya viene la siguiente oportunidad. ¡Tú puedes!',
 ];
 
+const PROVINCIAS = [
+  'Álava', 'Albacete', 'Alicante', 'Almería', 'Asturias', 'Ávila', 'Badajoz', 'Barcelona',
+  'Burgos', 'Cáceres', 'Cádiz', 'Cantabria', 'Castellón', 'Ciudad Real', 'Córdoba',
+  'Cuenca', 'Girona', 'Granada', 'Guadalajara', 'Guipúzcoa', 'Huelva', 'Huesca',
+  'Illes Balears', 'Jaén', 'La Coruña', 'La Rioja', 'Las Palmas', 'León', 'Lleida',
+  'Lugo', 'Madrid', 'Málaga', 'Murcia', 'Navarra', 'Ourense', 'Palencia', 'Pontevedra',
+  'Salamanca', 'Santa Cruz de Tenerife', 'Segovia', 'Sevilla', 'Soria', 'Tarragona',
+  'Teruel', 'Toledo', 'Valencia', 'Valladolid', 'Vizcaya', 'Zamora', 'Zaragoza',
+];
+
 function getWorkingDays(n = 14): Date[] {
   const days: Date[] = [];
   let d = addDays(new Date(), 1);
@@ -71,6 +82,24 @@ function getWorkingDays(n = 14): Date[] {
     d = addDays(d, 1);
   }
   return days;
+}
+
+function formatFechaEntrada(raw: string): string {
+  const d = new Date(raw);
+  const h = d.getUTCHours(), m = d.getUTCMinutes(), s = d.getUTCSeconds();
+  const hasTime = h !== 0 || m !== 0 || s !== 0;
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const yyyy = d.getUTCFullYear();
+  if (!hasTime) return `${dd}/${mm}/${yyyy}`;
+  const HH = String(h).padStart(2, '0');
+  const MM = String(m).padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} ${HH}:${MM}`;
+}
+
+function isValidPhone(raw: string): boolean {
+  const digits = raw.replace(/[\s\-\+\(\)]/g, '').replace(/[^0-9]/g, '');
+  return digits.length >= 6 && raw.replace(/[^0-9]/g, '').length >= 6;
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -85,6 +114,66 @@ function StepBack({ onClick, label = 'Volver' }: { onClick: () => void; label?: 
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="font-display text-lg font-bold mb-4">{children}</h2>;
+}
+
+// Model combobox with predictive search
+function ModelCombobox({
+  models,
+  value,
+  onChange,
+}: {
+  models: { id: string; name: string; family: string }[];
+  value: string;
+  onChange: (id: string, name: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const selectedModel = models.find(m => m.id === value);
+
+  useEffect(() => {
+    if (selectedModel) setQuery(selectedModel.name);
+  }, [value]);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const filtered = query.trim()
+    ? models.filter(m => m.name.toLowerCase().includes(query.toLowerCase())).slice(0, 12)
+    : models.slice(0, 12);
+
+  return (
+    <div ref={ref} className="relative">
+      <Input
+        value={query}
+        onChange={e => { setQuery(e.target.value); setOpen(true); if (!e.target.value) onChange('', ''); }}
+        onFocus={() => setOpen(true)}
+        placeholder="Buscar modelo..."
+        className="h-9 text-sm"
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute z-50 w-full mt-1 rounded-xl border bg-white shadow-lg max-h-60 overflow-y-auto">
+          {filtered.map(m => (
+            <button
+              key={m.id}
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => { onChange(m.id, m.name); setQuery(m.name); setOpen(false); }}
+              className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center justify-between ${value === m.id ? 'bg-ymc-redLight text-ymc-red font-medium' : ''}`}
+            >
+              <span>{m.name}</span>
+              <span className="text-xs text-muted-foreground capitalize">{m.family}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -108,8 +197,10 @@ export default function OperatorWorkspace({
   const [tel, setTel] = useState('');
   const [searching, setSearching] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [invalidPhone, setInvalidPhone] = useState(false);
   const [lead, setLead] = useState<Lead | null>(null);
   const [callHistory, setCallHistory] = useState<any[]>([]);
+  const [firstCallAt, setFirstCallAt] = useState<string | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Editable lead fields
@@ -119,6 +210,10 @@ export default function OperatorWorkspace({
   const [fTel2, setFTel2] = useState('');
   const [fDireccion, setFDireccion] = useState('');
   const [fCodPostal, setFCodPostal] = useState('');
+  const [fProvincia, setFProvincia] = useState('Málaga');
+  const [fTipoInteres, setFTipoInteres] = useState('Quiere moto nueva');
+  const [fLeadModeloId, setFLeadModeloId] = useState('');
+  const [fLeadModeloName, setFLeadModeloName] = useState('');
 
   // Cita
   const [citaTipo, setCitaTipo] = useState<CitaTipo | null>(null);
@@ -144,32 +239,58 @@ export default function OperatorWorkspace({
     setFTel2(lead.telefono2 ?? '');
     setFDireccion(lead.direccion ?? '');
     setFCodPostal(lead.codigo_postal ?? '');
+    setFProvincia(lead.provincia ?? 'Málaga');
+    setFTipoInteres(lead.tipo_interes ?? 'Quiere moto nueva');
+    const initialModel = models.find(m => m.id === lead.modelo_id);
+    setFLeadModeloId(lead.modelo_id ?? '');
+    setFLeadModeloName(initialModel?.name ?? lead.modelo_raw ?? '');
   }, [lead]);
 
   // Load call history when lead changes
   useEffect(() => {
-    if (!lead) { setCallHistory([]); return; }
+    if (!lead) { setCallHistory([]); setFirstCallAt(null); return; }
     setLoadingHistory(true);
     createClient()
       .from('mmc_calls')
       .select('id, call_at, agent_name, qcode_description, qcode_type, talk_time_s')
       .eq('lead_id', lead.id)
       .order('call_at', { ascending: false })
-      .limit(5)
-      .then(({ data }) => { setCallHistory(data ?? []); setLoadingHistory(false); });
+      .limit(3)
+      .then(async ({ data }) => {
+        setCallHistory(data ?? []);
+        // Fetch the first call (oldest)
+        if (data && data.length > 0) {
+          const { data: oldest } = await createClient()
+            .from('mmc_calls')
+            .select('call_at')
+            .eq('lead_id', lead.id)
+            .order('call_at', { ascending: true })
+            .limit(1);
+          setFirstCallAt(oldest?.[0]?.call_at ?? null);
+        }
+        setLoadingHistory(false);
+      });
   }, [lead]);
 
   async function doSearch(e: React.FormEvent) {
     e.preventDefault();
     const raw = tel.trim();
     if (!raw) return;
+
+    if (!isValidPhone(raw)) {
+      setInvalidPhone(true);
+      setNotFound(false);
+      return;
+    }
+
+    setInvalidPhone(false);
     setSearching(true);
     setNotFound(false);
     setLead(null);
     const normalized = raw.replace(/\D/g, '').slice(-9);
     const { data } = await supabase
       .from('mmc_leads')
-      .select('id,nombre,email,telefono,telefono2,direccion,codigo_postal,modelo_raw,modelo_id,formulario,mensajes_preferencias,seleccionar_peticion,fecha_entrada,status,bq_total_attempts,bq_last_call_at,bq_last_agent')
+      .select('id,nombre,email,telefono,telefono2,direccion,codigo_postal,modelo_raw,modelo_id,formulario,mensajes_preferencias,seleccionar_peticion,fecha_entrada,status,bq_total_attempts,bq_last_call_at,bq_last_agent,provincia,tipo_interes')
       .or(`telefono_normalized.eq.${normalized},telefono.ilike.%${raw}%`)
       .order('fecha_entrada', { ascending: false })
       .limit(1);
@@ -187,7 +308,9 @@ export default function OperatorWorkspace({
     setTel('');
     setLead(null);
     setNotFound(false);
+    setInvalidPhone(false);
     setCallHistory([]);
+    setFirstCallAt(null);
     setCitaTipo(null);
     setCitaModeloId('');
     setCitaDate(null);
@@ -209,6 +332,9 @@ export default function OperatorWorkspace({
         telefono2: fTel2 || null,
         direccion: fDireccion || null,
         codigo_postal: fCodPostal || null,
+        provincia: fProvincia || 'Málaga',
+        tipo_interes: fTipoInteres || null,
+        modelo_id: fLeadModeloId || null,
       };
       await supabase.from('mmc_leads').update(updates).eq('id', lead.id);
 
@@ -298,7 +424,7 @@ export default function OperatorWorkspace({
             <Phone className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
             <Input
               value={tel}
-              onChange={e => { setTel(e.target.value); setNotFound(false); }}
+              onChange={e => { setTel(e.target.value); setNotFound(false); setInvalidPhone(false); }}
               placeholder="600 123 456"
               className="h-16 text-2xl font-mono pl-12 pr-4 rounded-xl border-2 focus:border-ymc-red"
               autoFocus
@@ -315,7 +441,14 @@ export default function OperatorWorkspace({
           </Button>
         </form>
 
-        {notFound && (
+        {invalidPhone && (
+          <div className="w-full max-w-lg mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm text-red-800 flex items-center justify-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            Formato de teléfono no válido. Introduce solo el número del cliente.
+          </div>
+        )}
+
+        {notFound && !invalidPhone && (
           <div className="w-full max-w-lg mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-center text-sm text-amber-800">
             No encontramos ningún cliente con ese teléfono. Puede ser un lead nuevo o un número con formato distinto.
           </div>
@@ -327,6 +460,7 @@ export default function OperatorWorkspace({
   // ── STEP: lead ──────────────────────────────────────────────────────────────
   if (step === 'lead' && lead) {
     const prevQcode = callHistory[0]?.qcode_description;
+    const totalAttempts = lead.bq_total_attempts ?? callHistory.length;
 
     return (
       <div className="max-w-2xl mx-auto space-y-6">
@@ -358,59 +492,108 @@ export default function OperatorWorkspace({
               <Field icon={<Smartphone className="h-4 w-4" />} label="Teléfono 2 (opcional)" value={fTel2} onChange={setFTel2} type="tel" />
               <Field icon={<MapPin className="h-4 w-4" />} label="Dirección (opcional)" value={fDireccion} onChange={setFDireccion} className="sm:col-span-2" />
               <Field icon={<Hash className="h-4 w-4" />} label="Código postal (opcional)" value={fCodPostal} onChange={setFCodPostal} />
+              {/* Provincia */}
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <span className="text-ymc-red"><MapPin className="h-4 w-4 inline" /></span>Provincia
+                </Label>
+                <select
+                  value={fProvincia}
+                  onChange={e => setFProvincia(e.target.value)}
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:border-ymc-red focus:outline-none"
+                >
+                  {PROVINCIAS.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
             </div>
 
-            {/* Moto interesada */}
-            {(lead.modelo_raw || lead.seleccionar_peticion || lead.mensajes_preferencias) && (
-              <div className="rounded-xl bg-slate-50 p-4 space-y-1.5">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Interés del cliente</p>
-                {lead.modelo_raw && (
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <Bike className="h-4 w-4 text-ymc-red" />
-                    {lead.modelo_raw}
-                  </div>
-                )}
-                {lead.seleccionar_peticion && (
-                  <div className="text-sm text-muted-foreground">Petición: {lead.seleccionar_peticion}</div>
-                )}
-                {lead.mensajes_preferencias && (
-                  <div className="text-sm text-muted-foreground italic">"{lead.mensajes_preferencias}"</div>
-                )}
+            {/* Interés del cliente */}
+            <div className="rounded-xl bg-slate-50 p-4 space-y-3">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Interés del cliente</p>
+              {/* Tipo de interés */}
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Interés</Label>
+                <Input
+                  value={fTipoInteres}
+                  onChange={e => setFTipoInteres(e.target.value)}
+                  placeholder="Quiere moto nueva"
+                  className="h-9 text-sm bg-white"
+                />
               </div>
-            )}
+              {/* Modelo */}
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Bike className="h-3 w-3 text-ymc-red" />
+                  Modelo de interés
+                  {lead.modelo_raw && !lead.modelo_id && (
+                    <span className="text-xs text-muted-foreground ml-1">(sheet: "{lead.modelo_raw}")</span>
+                  )}
+                </Label>
+                <ModelCombobox
+                  models={models}
+                  value={fLeadModeloId}
+                  onChange={(id, name) => { setFLeadModeloId(id); setFLeadModeloName(name); }}
+                />
+              </div>
+              {lead.seleccionar_peticion && (
+                <div className="text-sm text-muted-foreground">Petición: {lead.seleccionar_peticion}</div>
+              )}
+              {lead.mensajes_preferencias && (
+                <div className="text-sm text-muted-foreground italic">"{lead.mensajes_preferencias}"</div>
+              )}
+            </div>
 
             {/* Historial */}
             <div className="rounded-xl bg-slate-50 p-4">
               <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-2">Historial de llamadas</p>
               {loadingHistory ? (
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              ) : callHistory.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Primera vez que se le llama.</p>
               ) : (
                 <div className="space-y-2">
-                  <div className="text-sm">
-                    <strong>{lead.bq_total_attempts ?? callHistory.length}</strong> intentos en total.
-                    {lead.bq_last_call_at && (
-                      <span className="text-muted-foreground">
-                        {' '}Último:{' '}
-                        {format(new Date(lead.bq_last_call_at), "d MMM 'a las' HH:mm", { locale: es })}
-                        {lead.bq_last_agent && ` con ${lead.bq_last_agent}`}
+                  {/* Entry + first call dates */}
+                  <div className="flex gap-4 text-xs text-muted-foreground">
+                    <span>
+                      <strong className="text-foreground">Entrada lead:</strong>{' '}
+                      {formatFechaEntrada(lead.fecha_entrada)}
+                    </span>
+                    {firstCallAt && (
+                      <span>
+                        <strong className="text-foreground">1ª llamada:</strong>{' '}
+                        {format(new Date(firstCallAt), "d MMM yyyy", { locale: es })}
                       </span>
                     )}
                   </div>
-                  {prevQcode && (
-                    <div className="text-xs px-2 py-1 rounded-md bg-white border inline-block">
-                      Último resultado: <strong>{prevQcode}</strong>
-                    </div>
+
+                  {callHistory.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Primera vez que se le llama.</p>
+                  ) : (
+                    <>
+                      <div className="text-sm">
+                        <strong>{totalAttempts}</strong>
+                        <span className="text-muted-foreground"> {totalAttempts === 1 ? 'intento' : 'intentos'} en total</span>
+                        {lead.bq_last_call_at && (
+                          <span className="text-muted-foreground">
+                            {' · '}Último:{' '}
+                            {format(new Date(lead.bq_last_call_at), "d MMM 'a las' HH:mm", { locale: es })}
+                            {lead.bq_last_agent && ` con ${lead.bq_last_agent}`}
+                          </span>
+                        )}
+                      </div>
+                      {prevQcode && (
+                        <div className="text-xs px-2 py-1 rounded-md bg-white border inline-block">
+                          Último resultado: <strong>{prevQcode}</strong>
+                        </div>
+                      )}
+                      {callHistory.map(c => (
+                        <div key={c.id} className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>{format(new Date(c.call_at), "d MMM · HH:mm", { locale: es })} — {c.agent_name || '—'}</span>
+                          {c.talk_time_s > 0
+                            ? <span className="text-green-700 font-medium">{Math.round(c.talk_time_s / 60)}min</span>
+                            : <span className="text-slate-400">Sin respuesta</span>}
+                        </div>
+                      ))}
+                    </>
                   )}
-                  {callHistory.slice(0, 4).map(c => (
-                    <div key={c.id} className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{format(new Date(c.call_at), "d MMM · HH:mm", { locale: es })} — {c.agent_name || '—'}</span>
-                      {c.talk_time_s > 0
-                        ? <span className="text-green-700 font-medium">{Math.round(c.talk_time_s / 60)}min</span>
-                        : <span className="text-slate-400">Sin respuesta</span>}
-                    </div>
-                  ))}
                 </div>
               )}
             </div>
@@ -449,7 +632,7 @@ export default function OperatorWorkspace({
 
   // ── STEP: cita ──────────────────────────────────────────────────────────────
   if (step === 'cita') {
-    const canContinue = !!citaTipo && (!( citaTipo === 'prueba_moto') || !!citaModeloId) && !!citaDate && !!citaTime && !!citaComercialId;
+    const canContinue = !!citaTipo && !!citaDate && !!citaTime && !!citaComercialId;
 
     return (
       <div className="max-w-2xl mx-auto space-y-8">
@@ -655,17 +838,16 @@ export default function OperatorWorkspace({
           </div>
 
           {/* Datos del cliente */}
-          <ConfirmSection
-            title="Datos del cliente"
-            onEdit={() => setStep('lead')}
-          >
+          <ConfirmSection title="Datos del cliente" onEdit={() => setStep('lead')}>
             <ConfirmRow icon="👤" label="Nombre" value={fNombre || lead.nombre} />
             <ConfirmRow icon="📞" label="Teléfono" value={fTel || lead.telefono || '—'} />
             {fEmail && <ConfirmRow icon="✉️" label="Email" value={fEmail} />}
             {fTel2 && <ConfirmRow icon="📱" label="Teléfono 2" value={fTel2} />}
             {fDireccion && <ConfirmRow icon="📍" label="Dirección" value={fDireccion} />}
             {fCodPostal && <ConfirmRow icon="#" label="Código postal" value={fCodPostal} />}
-            {lead.modelo_raw && <ConfirmRow icon="🏍️" label="Moto de interés" value={lead.modelo_raw} />}
+            <ConfirmRow icon="🗺️" label="Provincia" value={fProvincia} />
+            {fTipoInteres && <ConfirmRow icon="💡" label="Interés" value={fTipoInteres} />}
+            {fLeadModeloName && <ConfirmRow icon="🏍️" label="Modelo de interés" value={fLeadModeloName} />}
           </ConfirmSection>
 
           {/* Resultado */}
