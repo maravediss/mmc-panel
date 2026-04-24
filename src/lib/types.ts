@@ -43,6 +43,7 @@ export type NoInterestReason =
   | 'ya_comprada_otro_sitio'
   | 'precio_alto'
   | 'vive_lejos'
+  | 'otra_provincia'
   | 'solo_informacion'
   | 'ya_no_quiere';
 

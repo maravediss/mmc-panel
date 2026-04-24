@@ -17,7 +17,8 @@ export const NO_INTEREST_REASON_LABEL: Record<NoInterestReason, string> = {
   ya_comprada_otro_sitio: 'Ya la ha comprado en otro sitio',
   precio_alto: 'Precio alto',
   vive_lejos: 'Vive lejos / no quiere desplazarse',
-  solo_informacion: 'Solo quería información / comparar',
+  otra_provincia: 'Es de otra provincia',
+  solo_informacion: 'Solo quería información o comparar precios',
   ya_no_quiere: 'Ya no quiere la moto',
 };
 

@@ -1,962 +1,768 @@
 'use client';
 
-import { useState, useTransition, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useTransition } from 'react';
 import Link from 'next/link';
-import { format } from 'date-fns';
+import { format, addDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { toast } from 'sonner';
 import {
-  Phone,
-  Mail,
-  Bike,
-  History,
-  Search,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
-  ChevronDown,
-  ChevronUp,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  ClipboardList,
-  MessageSquare,
-  ExternalLink,
+  Search, Phone, Mail, Bike, ArrowLeft, ChevronRight,
+  Edit2, CheckCircle2, ExternalLink,
+  MapPin, Hash, Smartphone, User, Loader2,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { ORIGIN_LABEL } from '@/lib/mappings';
-import {
-  CALL_RESULT_LABEL,
-  NO_INTEREST_REASON_LABEL,
-  isCitaResult,
-  citaResultToApptType,
-} from '@/lib/call-mappings';
-import type { CallResult, LeadOrigin, NoInterestReason } from '@/lib/types';
+import type { NoInterestReason } from '@/lib/types';
+import { citaResultToApptType } from '@/lib/call-mappings';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Report = { call_result: string; created_at: string };
+type Step = 'search' | 'lead' | 'cita' | 'no_interesado' | 'confirm' | 'done';
+type CitaTipo = 'prueba_moto' | 'concesionario' | 'taller';
+
 type Lead = {
-  id: string;
-  nombre: string;
-  email: string | null;
-  telefono: string | null;
-  modelo_raw: string | null;
-  origen: LeadOrigin;
-  formulario: string | null;
-  mensajes_preferencias: string | null;
-  fecha_entrada: string;
-  status: string;
-  bq_total_attempts: number | null;
-  bq_last_agent: string | null;
-  bq_last_qcode: string | null;
-  bq_last_call_at: string | null;
+  id: string; nombre: string; email: string | null; telefono: string | null;
+  telefono2: string | null; direccion: string | null; codigo_postal: string | null;
+  modelo_raw: string | null; modelo_id: string | null; formulario: string | null;
+  mensajes_preferencias: string | null; seleccionar_peticion: string | null;
+  fecha_entrada: string; status: string;
+  bq_total_attempts: number | null; bq_last_call_at: string | null; bq_last_agent: string | null;
 };
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const NON_EFFECTIVE = new Set([
-  'no_contactado',
-  'no_contesta',
-  'contacto_erroneo',
-  'cuelga_al_identificarse',
-]);
-
-const CITA_RESULTS = new Set([
-  'cita_taller',
-  'cita_concesionario',
-  'cita_prueba_moto',
-]);
-
-const ARGUMENTARIO_STEPS = [
-  {
-    step: 1,
-    title: 'Apertura e identificación',
-    script:
-      'Buenos días/tardes, mi nombre es [tu nombre]. Le llamo de parte de Yamaha Málaga Center. ¿Hablo con [nombre del lead]?',
-    tip: 'Si no contesta o cuelga, registra el resultado correspondiente.',
-  },
-  {
-    step: 2,
-    title: 'Confirmar interés',
-    script:
-      'Le llamamos porque nos ha dejado sus datos interesado/a en la [modelo]. ¿Sigue con ese interés en este momento?',
-    tip: 'Si ya no tiene interés, pregunta el motivo antes de cerrar.',
-  },
-  {
-    step: 3,
-    title: 'Presentar propuesta',
-    script:
-      'Tenemos disponibilidad para una prueba de moto completamente gratuita en nuestro concesionario. Además, contamos con opciones de financiación muy competitivas y nuestro equipo puede asesorarle sin compromiso.',
-    tip: 'Adapta el mensaje según el modelo: si es eléctrica, menciona autonomía; si es naked, menciona versatilidad.',
-  },
-  {
-    step: 4,
-    title: 'Proponer y concretar cita',
-    script:
-      '¿Cuándo tendría disponibilidad para pasarse por el concesionario? Puedo reservarle cita directamente con nuestro comercial Francisco. ¿Le va bien esta semana?',
-    tip: 'Propón fechas concretas. Si quiere pensarlo, ofrece llamarle en unos días (QMI).',
-  },
-  {
-    step: 5,
-    title: 'Cierre y confirmación',
-    script:
-      'Perfecto, le reservo la cita para el [día] a las [hora] con [comercial]. Recibirá un email de confirmación. ¿Puede confirmarme su correo?',
-    tip: 'Antes de colgar, anota el resultado y cualquier observación importante.',
-  },
+const CITA_TIPOS: { value: CitaTipo; label: string; emoji: string; desc: string }[] = [
+  { value: 'prueba_moto',    label: 'Prueba de moto',         emoji: '🏍️', desc: 'El cliente quiere probar una moto' },
+  { value: 'concesionario',  label: 'Visita al concesionario', emoji: '🏪', desc: 'Visita sin prueba, para ver modelos' },
+  { value: 'taller',         label: 'Cita de taller',          emoji: '🔧', desc: 'Reparación o mantenimiento' },
 ];
 
-// ─── KPI helpers ─────────────────────────────────────────────────────────────
+const NO_INT_REASONS: { value: NoInterestReason; label: string; emoji: string }[] = [
+  { value: 'ya_comprada_otro_sitio', label: 'Ya la ha comprado en otro sitio',              emoji: '🛒' },
+  { value: 'precio_alto',            label: 'Precio alto',                                   emoji: '💰' },
+  { value: 'vive_lejos',             label: 'Vive lejos / no quiere desplazarse',            emoji: '📍' },
+  { value: 'otra_provincia',         label: 'Es de otra provincia',                          emoji: '🗺️' },
+  { value: 'solo_informacion',       label: 'Solo quería información o comparar precios',    emoji: 'ℹ️' },
+  { value: 'ya_no_quiere',           label: 'Ya no quiere la moto',                          emoji: '🚫' },
+];
 
-function computeKpis(reports: Report[]) {
-  const total = reports.length;
-  const effective = reports.filter((r) => !NON_EFFECTIVE.has(r.call_result)).length;
-  const citas = reports.filter((r) => CITA_RESULTS.has(r.call_result)).length;
-  const contactRate = total > 0 ? Math.round((effective / total) * 100) : 0;
-  const conversion = effective > 0 ? Math.round((citas / effective) * 100) : 0;
-  return { total, effective, citas, contactRate, conversion };
-}
+const MORNING = ['09:00', '10:00', '11:00', '12:00', '13:00'];
+const AFTERNOON = ['16:00', '17:00', '18:00', '19:00'];
 
-function Trend({ current, previous }: { current: number; previous: number }) {
-  if (previous === 0 && current === 0) return <span className="text-muted-foreground text-xs">—</span>;
-  const delta = current - previous;
-  const pct = previous > 0 ? Math.round((delta / previous) * 100) : 100;
-  if (delta > 0)
-    return (
-      <span className="inline-flex items-center gap-0.5 text-xs text-green-600 font-medium">
-        <TrendingUp className="h-3 w-3" />+{pct}%
-      </span>
-    );
-  if (delta < 0)
-    return (
-      <span className="inline-flex items-center gap-0.5 text-xs text-red-500 font-medium">
-        <TrendingDown className="h-3 w-3" />
-        {pct}%
-      </span>
-    );
-  return (
-    <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
-      <Minus className="h-3 w-3" />
-      igual
-    </span>
-  );
-}
+const DONE_CITA = [
+  (name: string) => `¡Enhorabuena! ${name} vendrá a conocer la moto de sus sueños gracias a ti.`,
+  () => '¡Cita anotada! Así es como se trabaja. ¡Sigue así!',
+  () => '¡Ahí está! Cada cita es un paso hacia el cierre. Eres la clave de este proceso.',
+];
+const DONE_NO = [
+  () => 'No todas terminan en cita, y eso es completamente normal. Lo has gestionado perfectamente. ¡A por la siguiente!',
+  () => 'Un "no" hoy puede ser un "sí" mañana. Lo importante es haber hecho el contacto con profesionalismo.',
+  () => 'Tranquila, forma parte del proceso. Ya viene la siguiente oportunidad. ¡Tú puedes!',
+];
 
-// ─── KPI Card ────────────────────────────────────────────────────────────────
-
-function KpiCard({
-  label,
-  todayVal,
-  weekVal,
-  prevWeekVal,
-  suffix = '',
-  accent = false,
-}: {
-  label: string;
-  todayVal: number;
-  weekVal: number;
-  prevWeekVal: number;
-  suffix?: string;
-  accent?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-xl border bg-white p-4 flex flex-col gap-1 ${
-        accent ? 'border-green-200 bg-green-50' : ''
-      }`}
-    >
-      <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
-        {label}
-      </span>
-      <div className={`font-display text-3xl font-bold leading-none ${accent ? 'text-green-700' : ''}`}>
-        {todayVal}
-        {suffix}
-      </div>
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
-        <span>Semana: {weekVal}{suffix}</span>
-        <Trend current={weekVal} previous={prevWeekVal} />
-      </div>
-    </div>
-  );
-}
-
-// ─── Argumentario ─────────────────────────────────────────────────────────────
-
-function Argumentario() {
-  const [open, setOpen] = useState<number | null>(null);
-  const [checked, setChecked] = useState<Set<number>>(new Set());
-
-  function toggle(i: number) {
-    setOpen((prev) => (prev === i ? null : i));
+function getWorkingDays(n = 14): Date[] {
+  const days: Date[] = [];
+  let d = addDays(new Date(), 1);
+  while (days.length < n) {
+    if (d.getDay() !== 0) days.push(new Date(d));
+    d = addDays(d, 1);
   }
+  return days;
+}
 
-  function check(i: number, e: React.MouseEvent) {
-    e.stopPropagation();
-    setChecked((prev) => {
-      const next = new Set(prev);
-      if (next.has(i)) { next.delete(i); } else { next.add(i); }
-      return next;
-    });
-  }
+// ─── Sub-components ──────────────────────────────────────────────────────────
 
+function StepBack({ onClick, label = 'Volver' }: { onClick: () => void; label?: string }) {
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="font-display text-base flex items-center gap-2">
-          <ClipboardList className="h-4 w-4 text-ymc-red" />
-          Argumentario de llamada
-          <span className="text-xs text-muted-foreground font-sans font-normal">
-            ({checked.size}/{ARGUMENTARIO_STEPS.length} pasos)
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2 pt-0">
-        {ARGUMENTARIO_STEPS.map((s) => {
-          const isDone = checked.has(s.step);
-          const isOpen = open === s.step;
-          return (
-            <div
-              key={s.step}
-              className={`rounded-lg border transition-colors ${
-                isDone ? 'border-green-200 bg-green-50/60' : 'border-slate-200 bg-white'
-              }`}
-            >
-              <button
-                type="button"
-                onClick={() => toggle(s.step)}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-left"
-              >
-                <button
-                  type="button"
-                  onClick={(e) => check(s.step, e)}
-                  className={`shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${
-                    isDone ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300'
-                  }`}
-                >
-                  {isDone && <CheckCircle2 className="h-3.5 w-3.5" />}
-                </button>
-                <span
-                  className={`text-sm font-medium flex-1 ${
-                    isDone ? 'line-through text-muted-foreground' : ''
-                  }`}
-                >
-                  {s.step}. {s.title}
-                </span>
-                {isOpen ? (
-                  <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-                )}
-              </button>
-              {isOpen && (
-                <div className="px-4 pb-3 space-y-2">
-                  <div className="text-sm text-slate-700 bg-white rounded-md border p-3 leading-relaxed italic">
-                    "{s.script}"
-                  </div>
-                  <div className="flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 rounded-md px-2 py-1.5">
-                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                    {s.tip}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {checked.size > 0 && (
-          <button
-            type="button"
-            onClick={() => setChecked(new Set())}
-            className="text-xs text-muted-foreground hover:text-foreground"
-          >
-            Reiniciar pasos
-          </button>
-        )}
-      </CardContent>
-    </Card>
+    <button onClick={onClick} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6">
+      <ArrowLeft className="h-4 w-4" /> {label}
+    </button>
   );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return <h2 className="font-display text-lg font-bold mb-4">{children}</h2>;
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function OperatorWorkspace({
   commercial,
-  todayReports,
-  weekReports,
-  prevWeekReports,
-  initialQuery,
-  initialLead,
-  candidates,
+  models,
   comerciales,
 }: {
   commercial: { id: string; name: string; display_name: string | null; role: string };
-  todayReports: Report[];
-  weekReports: Report[];
-  prevWeekReports: Report[];
-  initialQuery: string;
-  initialLead: Lead | null;
-  candidates: Lead[];
+  models: { id: string; name: string; family: string }[];
   comerciales: { id: string; name: string; role: string }[];
 }) {
-  const router = useRouter();
   const supabase = createClient();
-  const [tel, setTel] = useState(initialQuery);
-  const [selected, setSelected] = useState<Lead | null>(initialLead);
-  const [calls, setCalls] = useState<any[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
   const [pending, startTransition] = useTransition();
 
-  // Form state
-  const [callResult, setCallResult] = useState<CallResult | ''>('');
-  const [noInterestReason, setNoInterestReason] = useState<NoInterestReason | ''>('');
-  const [citaDate, setCitaDate] = useState(new Date().toISOString().slice(0, 10));
-  const [citaTime, setCitaTime] = useState('10:00');
-  const [citaComercial, setCitaComercial] = useState('');
-  const [qmiMotivo, setQmiMotivo] = useState('');
-  const [observaciones, setObservaciones] = useState('');
-  const [commsOptIn, setCommsOptIn] = useState<boolean | null>(null);
+  // Navigation
+  const [step, setStep] = useState<Step>('search');
 
-  const today = computeKpis(todayReports);
-  const week = computeKpis(weekReports);
-  const prevWeek = computeKpis(prevWeekReports);
+  // Search
+  const [tel, setTel] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+  const [lead, setLead] = useState<Lead | null>(null);
+  const [callHistory, setCallHistory] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
+  // Editable lead fields
+  const [fNombre, setFNombre] = useState('');
+  const [fTel, setFTel] = useState('');
+  const [fEmail, setFEmail] = useState('');
+  const [fTel2, setFTel2] = useState('');
+  const [fDireccion, setFDireccion] = useState('');
+  const [fCodPostal, setFCodPostal] = useState('');
+
+  // Cita
+  const [citaTipo, setCitaTipo] = useState<CitaTipo | null>(null);
+  const [citaModeloId, setCitaModeloId] = useState('');
+  const [citaDate, setCitaDate] = useState<Date | null>(null);
+  const [citaTime, setCitaTime] = useState('');
+  const [citaComercialId, setCitaComercialId] = useState('');
+
+  // No interesado
+  const [motivo, setMotivo] = useState<NoInterestReason | ''>('');
+  const [notas, setNotas] = useState('');
+
+  // Done
+  const [doneMsg, setDoneMsg] = useState('');
+  const [doneIsCita, setDoneIsCita] = useState(false);
+
+  // Load lead fields when found
   useEffect(() => {
-    if (!selected) { setCalls([]); return; }
-    const sb = createClient();
-    (async () => {
-      setLoadingHistory(true);
-      const { data } = await sb
-        .from('mmc_calls')
-        .select('id, call_at, agent_name, qcode_description, qcode_type, talk_time_s')
-        .eq('lead_id', selected.id)
-        .order('call_at', { ascending: false })
-        .limit(10);
-      setCalls(data ?? []);
-      setLoadingHistory(false);
-    })();
-  }, [selected]);
+    if (!lead) return;
+    setFNombre(lead.nombre ?? '');
+    setFTel(lead.telefono ?? '');
+    setFEmail(lead.email ?? '');
+    setFTel2(lead.telefono2 ?? '');
+    setFDireccion(lead.direccion ?? '');
+    setFCodPostal(lead.codigo_postal ?? '');
+  }, [lead]);
 
-  function onSearch(e: React.FormEvent) {
+  // Load call history when lead changes
+  useEffect(() => {
+    if (!lead) { setCallHistory([]); return; }
+    setLoadingHistory(true);
+    createClient()
+      .from('mmc_calls')
+      .select('id, call_at, agent_name, qcode_description, qcode_type, talk_time_s')
+      .eq('lead_id', lead.id)
+      .order('call_at', { ascending: false })
+      .limit(5)
+      .then(({ data }) => { setCallHistory(data ?? []); setLoadingHistory(false); });
+  }, [lead]);
+
+  async function doSearch(e: React.FormEvent) {
     e.preventDefault();
-    router.push(`/operator?tel=${encodeURIComponent(tel.trim())}`);
+    const raw = tel.trim();
+    if (!raw) return;
+    setSearching(true);
+    setNotFound(false);
+    setLead(null);
+    const normalized = raw.replace(/\D/g, '').slice(-9);
+    const { data } = await supabase
+      .from('mmc_leads')
+      .select('id,nombre,email,telefono,telefono2,direccion,codigo_postal,modelo_raw,modelo_id,formulario,mensajes_preferencias,seleccionar_peticion,fecha_entrada,status,bq_total_attempts,bq_last_call_at,bq_last_agent')
+      .or(`telefono_normalized.eq.${normalized},telefono.ilike.%${raw}%`)
+      .order('fecha_entrada', { ascending: false })
+      .limit(1);
+    setSearching(false);
+    if (data && data.length > 0) {
+      setLead(data[0] as Lead);
+      setStep('lead');
+    } else {
+      setNotFound(true);
+    }
   }
 
-  async function onSubmitReport(e: React.FormEvent) {
-    e.preventDefault();
-    if (!selected || !callResult) return;
+  function resetAll() {
+    setStep('search');
+    setTel('');
+    setLead(null);
+    setNotFound(false);
+    setCallHistory([]);
+    setCitaTipo(null);
+    setCitaModeloId('');
+    setCitaDate(null);
+    setCitaTime('');
+    setCitaComercialId('');
+    setMotivo('');
+    setNotas('');
+    setDoneMsg('');
+  }
 
+  async function handleConfirm() {
+    if (!lead) return;
     startTransition(async () => {
-      const payload: any = {
-        lead_id: selected.id,
-        operator_id: commercial.id,
-        telefono_buscado: tel || null,
-        call_result: callResult,
-        observaciones: observaciones || null,
-        comunicaciones_comerciales: commsOptIn,
+      // 1. Update lead fields
+      const updates: Record<string, string | null> = {
+        nombre: fNombre || lead.nombre,
+        telefono: fTel || lead.telefono,
+        email: fEmail || null,
+        telefono2: fTel2 || null,
+        direccion: fDireccion || null,
+        codigo_postal: fCodPostal || null,
       };
-      if (callResult === 'no_interesado') payload.no_interest_reason = noInterestReason || null;
-      if (callResult === 'quiere_mas_info_concesionario') payload.qmi_motivo = qmiMotivo || null;
+      await supabase.from('mmc_leads').update(updates).eq('id', lead.id);
 
-      let citaFecha: Date | null = null;
-      if (isCitaResult(callResult)) {
-        citaFecha = new Date(`${citaDate}T${citaTime}:00`);
-        payload.cita_fecha = citaFecha.toISOString();
-        payload.cita_comercial_id = citaComercial || null;
-      }
+      // 2. Operator report
+      const callResult = motivo
+        ? 'no_interesado'
+        : citaTipo === 'prueba_moto'
+        ? 'cita_prueba_moto'
+        : citaTipo === 'concesionario'
+        ? 'cita_concesionario'
+        : 'cita_taller';
 
-      const { error } = await supabase.from('mmc_operator_reports').insert(payload);
-      if (error) {
-        toast.error('Error guardando reporte', { description: error.message });
-        return;
-      }
+      const reportPayload: Record<string, unknown> = {
+        lead_id: lead.id,
+        operator_id: commercial.id,
+        telefono_buscado: tel,
+        call_result: callResult,
+        observaciones: notas || null,
+        ...(motivo ? { no_interest_reason: motivo } : {}),
+        ...(citaDate ? { cita_fecha: new Date(`${format(citaDate, 'yyyy-MM-dd')}T${citaTime}:00`).toISOString() } : {}),
+        ...(citaComercialId ? { cita_comercial_id: citaComercialId } : {}),
+      };
+      const { error: rErr } = await supabase.from('mmc_operator_reports').insert(reportPayload);
+      if (rErr) { toast.error('Error guardando reporte', { description: rErr.message }); return; }
 
-      // Cita → Bookings
-      if (isCitaResult(callResult) && citaFecha && citaComercial) {
-        const tipo = citaResultToApptType(callResult);
+      // 3. If cita → Bookings API
+      if (!motivo && citaTipo && citaDate && citaTime && citaComercialId) {
+        const tipo = citaResultToApptType(callResult as any);
         if (tipo) {
+          const fechaIso = `${format(citaDate, 'yyyy-MM-dd')}T${citaTime}:00`;
           const res = await fetch('/api/bookings/create', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              lead_id: selected.id,
-              tipo,
-              fecha_iso: `${citaDate}T${citaTime}:00`,
-              commercial_id: citaComercial,
-              notas: observaciones || null,
-            }),
+            body: JSON.stringify({ lead_id: lead.id, tipo, fecha_iso: fechaIso, commercial_id: citaComercialId, notas: notas || null }),
           });
           if (!res.ok) {
             const err = await res.json().catch(() => ({ error: 'unknown' }));
             toast.error('Cita en panel pero falló Bookings', { description: err.error });
-            await supabase.from('mmc_appointments').insert({
-              lead_id: selected.id,
-              commercial_id: citaComercial,
-              tipo,
-              fecha_cita: citaFecha.toISOString(),
-              status: 'pending',
-              sync_source: 'panel_fallback',
-            });
-          } else {
-            toast.success('¡Cita creada!', { description: 'Aparecerá en el calendario de Francisco.' });
+            await supabase.from('mmc_appointments').insert({ lead_id: lead.id, commercial_id: citaComercialId, tipo, fecha_cita: `${fechaIso}`, status: 'pending', sync_source: 'panel_fallback' });
           }
-          await supabase.from('mmc_leads').update({ status: 'appointment' }).eq('id', selected.id);
+          await supabase.from('mmc_leads').update({ status: 'appointment' }).eq('id', lead.id);
         }
-      } else if (callResult === 'no_interesado') {
-        await supabase.from('mmc_leads').update({ status: 'lost' }).eq('id', selected.id);
-        toast.success('Reporte guardado');
-      } else if (callResult === 'contacto_erroneo') {
-        await supabase.from('mmc_leads').update({ status: 'bad_contact' }).eq('id', selected.id);
-        toast.success('Reporte guardado');
-      } else {
-        await supabase.from('mmc_leads').update({ status: 'contacted' }).eq('id', selected.id);
-        toast.success('Reporte guardado');
+      } else if (motivo) {
+        await supabase.from('mmc_leads').update({ status: 'lost', lost_reason: motivo }).eq('id', lead.id);
       }
 
-      // Reset
-      setCallResult('');
-      setNoInterestReason('');
-      setQmiMotivo('');
-      setObservaciones('');
-      setCommsOptIn(null);
-      router.refresh();
+      // 4. Done screen
+      const isCita = !motivo;
+      setDoneIsCita(isCita);
+      if (isCita) {
+        const msgs = DONE_CITA;
+        setDoneMsg(msgs[Math.floor(Math.random() * msgs.length)](fNombre || lead.nombre));
+      } else {
+        const msgs = DONE_NO;
+        setDoneMsg(msgs[Math.floor(Math.random() * msgs.length)]());
+      }
+      setStep('done');
     });
   }
 
-  const hora = new Date().getHours();
-  const saludo =
-    hora < 14 ? 'Buenos días' : hora < 20 ? 'Buenas tardes' : 'Buenas noches';
+  const citaModeloName = models.find(m => m.id === citaModeloId)?.name ?? '';
+  const citaComercialName = comerciales.find(c => c.id === citaComercialId)?.name ?? '';
+  const workingDays = getWorkingDays();
 
-  return (
-    <div className="space-y-6">
-      {/* Cabecera personal */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h1 className="font-display text-2xl font-bold">
-            {saludo}, {commercial.display_name || commercial.name}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {format(new Date(), "EEEE d 'de' MMMM", { locale: es })}
-          </p>
+  // ── STEP: search ────────────────────────────────────────────────────────────
+  if (step === 'search' || step === 'done') {
+    const hora = new Date().getHours();
+    const saludo = hora < 14 ? 'Buenos días' : hora < 20 ? 'Buenas tardes' : 'Buenas noches';
+
+    return (
+      <div className="min-h-[70vh] flex flex-col items-center justify-center px-4">
+        {/* Done reinforcement message */}
+        {step === 'done' && doneMsg && (
+          <div className={`w-full max-w-lg mb-8 rounded-xl border p-5 text-center ${doneIsCita ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
+            <div className="text-3xl mb-2">{doneIsCita ? '🎉' : '💪'}</div>
+            <p className={`font-medium text-base ${doneIsCita ? 'text-green-800' : 'text-blue-800'}`}>{doneMsg}</p>
+          </div>
+        )}
+
+        <div className="w-full max-w-lg text-center mb-8">
+          <h1 className="font-display text-3xl font-bold mb-1">{saludo}, {commercial.display_name || commercial.name}</h1>
+          <p className="text-muted-foreground">Introduce el teléfono del cliente que tienes en línea</p>
         </div>
+
+        <form onSubmit={doSearch} className="w-full max-w-lg space-y-3">
+          <div className="relative">
+            <Phone className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+            <Input
+              value={tel}
+              onChange={e => { setTel(e.target.value); setNotFound(false); }}
+              placeholder="600 123 456"
+              className="h-16 text-2xl font-mono pl-12 pr-4 rounded-xl border-2 focus:border-ymc-red"
+              autoFocus
+            />
+          </div>
+          <Button
+            type="submit"
+            size="lg"
+            disabled={!tel.trim() || searching}
+            className="w-full h-14 bg-ymc-red hover:bg-ymc-redDark text-white text-lg rounded-xl"
+          >
+            {searching ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Search className="h-5 w-5 mr-2" />}
+            Identificar cliente
+          </Button>
+        </form>
+
+        {notFound && (
+          <div className="w-full max-w-lg mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-center text-sm text-amber-800">
+            No encontramos ningún cliente con ese teléfono. Puede ser un lead nuevo o un número con formato distinto.
+          </div>
+        )}
       </div>
+    );
+  }
 
-      {/* KPIs ─ hoy + semana */}
-      <div>
-        <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 font-medium">
-          Mi rendimiento
-        </p>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <KpiCard
-            label="Llamadas"
-            todayVal={today.total}
-            weekVal={week.total}
-            prevWeekVal={prevWeek.total}
-          />
-          <KpiCard
-            label="Contactos"
-            todayVal={today.effective}
-            weekVal={week.effective}
-            prevWeekVal={prevWeek.effective}
-          />
-          <KpiCard
-            label="Tasa contacto"
-            todayVal={today.contactRate}
-            weekVal={week.contactRate}
-            prevWeekVal={prevWeek.contactRate}
-            suffix="%"
-          />
-          <KpiCard
-            label="Citas agendadas"
-            todayVal={today.citas}
-            weekVal={week.citas}
-            prevWeekVal={prevWeek.citas}
-            accent={today.citas > 0}
-          />
-          <KpiCard
-            label="Conversión"
-            todayVal={today.conversion}
-            weekVal={week.conversion}
-            prevWeekVal={prevWeek.conversion}
-            suffix="%"
-            accent={today.conversion > 0}
-          />
-        </div>
-        <p className="text-[10px] text-muted-foreground mt-1.5">
-          Hoy (número grande) · Semana = últimos 7 días · Flecha = vs semana anterior
-        </p>
-      </div>
+  // ── STEP: lead ──────────────────────────────────────────────────────────────
+  if (step === 'lead' && lead) {
+    const prevQcode = callHistory[0]?.qcode_description;
 
-      {/* Búsqueda de teléfono */}
-      <Card className="border-l-4 border-l-ymc-red">
-        <CardContent className="pt-5">
-          <form onSubmit={onSearch} className="flex gap-3 items-end flex-wrap">
-            <div className="flex-1 min-w-[220px]">
-              <Label htmlFor="tel" className="text-xs uppercase tracking-wider text-muted-foreground">
-                Teléfono que ha saltado en Presence
-              </Label>
-              <Input
-                id="tel"
-                value={tel}
-                onChange={(e) => setTel(e.target.value)}
-                placeholder="600 123 456"
-                className="h-12 text-lg font-mono mt-1"
-                autoFocus
-              />
+    return (
+      <div className="max-w-2xl mx-auto space-y-6">
+        <StepBack onClick={resetAll} label="Buscar otro cliente" />
+
+        {/* Lead card */}
+        <div className="rounded-2xl border-2 border-ymc-red/30 bg-white shadow-sm overflow-hidden">
+          {/* Header */}
+          <div className="bg-ymc-red px-6 py-4 flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <User className="h-5 w-5 text-white/80" />
+                <span className="text-white/70 text-sm">Cliente identificado</span>
+              </div>
+              <h2 className="font-display text-2xl font-bold text-white mt-0.5">{lead.nombre}</h2>
             </div>
-            <Button
-              type="submit"
-              size="lg"
-              className="bg-ymc-red hover:bg-ymc-redDark text-white h-12"
-            >
-              <Search className="h-5 w-5 mr-2" />
-              Buscar
-            </Button>
-            {tel && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="lg"
-                className="h-12"
-                onClick={() => {
-                  setTel('');
-                  setSelected(null);
-                  router.push('/operator');
-                }}
-              >
-                Limpiar
-              </Button>
-            )}
-          </form>
-
-          {candidates.length > 1 && (
-            <div className="mt-3 text-xs text-muted-foreground">
-              {candidates.length} leads con este teléfono.{' '}
-              <details className="inline">
-                <summary className="cursor-pointer text-ymc-red">ver todos</summary>
-                <ul className="mt-2 space-y-1">
-                  {candidates.map((c) => (
-                    <li key={c.id}>
-                      <button
-                        onClick={() => setSelected(c)}
-                        className={`text-left hover:underline ${
-                          selected?.id === c.id ? 'font-medium text-ymc-red' : ''
-                        }`}
-                      >
-                        {c.nombre} ·{' '}
-                        {format(new Date(c.fecha_entrada), 'd MMM yyyy', { locale: es })}
-                        {c.modelo_raw && ` · ${c.modelo_raw}`}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Área principal: lead + argumentario + formulario */}
-      {selected ? (
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-          {/* Columna izquierda: ficha + historial + argumentario */}
-          <div className="xl:col-span-4 space-y-4">
-            {/* Ficha del lead */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="font-display text-xl flex items-center justify-between">
-                  <span>{selected.nombre}</span>
-                  <Link
-                    href={`/leads/${selected.id}`}
-                    className="text-xs text-muted-foreground hover:text-ymc-red inline-flex items-center gap-1"
-                    target="_blank"
-                  >
-                    Ficha completa <ExternalLink className="h-3 w-3" />
-                  </Link>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm space-y-2.5">
-                <div className="flex gap-2 flex-wrap">
-                  <Badge variant="secondary" className="font-mono text-xs">
-                    {ORIGIN_LABEL[selected.origen]}
-                  </Badge>
-                  {selected.formulario && (
-                    <span className="text-xs text-muted-foreground truncate max-w-[180px]">
-                      via {selected.formulario}
-                    </span>
-                  )}
-                </div>
-
-                {selected.telefono && (
-                  <a
-                    href={`tel:${selected.telefono}`}
-                    className="flex items-center gap-2 hover:underline"
-                  >
-                    <Phone className="h-4 w-4 text-ymc-red shrink-0" />
-                    <span className="font-mono font-medium">{selected.telefono}</span>
-                  </a>
-                )}
-                {selected.email && (
-                  <a
-                    href={`mailto:${selected.email}`}
-                    className="flex items-center gap-2 hover:underline truncate"
-                  >
-                    <Mail className="h-4 w-4 text-ymc-red shrink-0" />
-                    <span className="truncate">{selected.email}</span>
-                  </a>
-                )}
-                {selected.modelo_raw && (
-                  <div className="flex items-center gap-2">
-                    <Bike className="h-4 w-4 text-ymc-red shrink-0" />
-                    <span className="font-medium">{selected.modelo_raw}</span>
-                  </div>
-                )}
-                {selected.mensajes_preferencias && (
-                  <div className="flex items-start gap-2 text-muted-foreground bg-slate-50 rounded-md p-2 mt-1">
-                    <MessageSquare className="h-4 w-4 text-ymc-red mt-0.5 shrink-0" />
-                    <em className="text-xs">"{selected.mensajes_preferencias}"</em>
-                  </div>
-                )}
-
-                <div className="pt-2 border-t text-xs text-muted-foreground space-y-0.5">
-                  <div>
-                    Lead desde{' '}
-                    <strong>
-                      {format(new Date(selected.fecha_entrada), 'd MMM yyyy', { locale: es })}
-                    </strong>
-                  </div>
-                  {selected.bq_total_attempts != null && (
-                    <div>
-                      Intentos previos Presence:{' '}
-                      <strong>{selected.bq_total_attempts}</strong>
-                    </div>
-                  )}
-                  {selected.bq_last_agent && (
-                    <div>
-                      Última agente: <strong>{selected.bq_last_agent}</strong>
-                    </div>
-                  )}
-                  {selected.bq_last_call_at && (
-                    <div>
-                      Último intento:{' '}
-                      <strong>
-                        {format(
-                          new Date(selected.bq_last_call_at),
-                          "d MMM · HH:mm",
-                          { locale: es }
-                        )}
-                      </strong>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Histórico de llamadas */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="font-display text-base flex items-center gap-2">
-                  <History className="h-4 w-4 text-ymc-red" />
-                  Últimas llamadas
-                  {selected.bq_total_attempts != null && (
-                    <span className="text-xs text-muted-foreground font-sans font-normal">
-                      ({calls.length} de {selected.bq_total_attempts})
-                    </span>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {loadingHistory ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                ) : calls.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-1">Sin llamadas registradas.</p>
-                ) : (
-                  <ul className="space-y-2 text-sm">
-                    {calls.map((c) => (
-                      <li key={c.id} className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-xs font-medium">
-                            {format(new Date(c.call_at), "d MMM · HH:mm", { locale: es })}
-                          </div>
-                          <div className="text-[11px] text-muted-foreground">{c.agent_name || '—'}</div>
-                        </div>
-                        <span
-                          className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${
-                            c.qcode_type === 'Positive useful'
-                              ? 'bg-green-50 border-green-200 text-green-700'
-                              : c.qcode_type === 'Negative useful'
-                              ? 'bg-amber-50 border-amber-200 text-amber-700'
-                              : 'bg-slate-50 border-slate-200 text-slate-600'
-                          }`}
-                        >
-                          {c.qcode_description || c.qcode_type || '—'}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Argumentario */}
-            <Argumentario />
+            <Link href={`/leads/${lead.id}`} target="_blank" className="text-white/60 hover:text-white inline-flex items-center gap-1 text-xs">
+              Ficha completa <ExternalLink className="h-3 w-3" />
+            </Link>
           </div>
 
-          {/* Columna derecha: formulario de resultado */}
-          <form onSubmit={onSubmitReport} className="xl:col-span-8">
-            <Card className="h-full">
-              <CardHeader>
-                <CardTitle className="font-display text-lg">
-                  Resultado de la llamada con {selected.nombre}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-5">
-                {/* Resultado */}
+          {/* Editable fields */}
+          <div className="p-6 space-y-4">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Datos de contacto — editables</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field icon={<User className="h-4 w-4" />} label="Nombre" value={fNombre} onChange={setFNombre} />
+              <Field icon={<Phone className="h-4 w-4" />} label="Teléfono" value={fTel} onChange={setFTel} type="tel" />
+              <Field icon={<Mail className="h-4 w-4" />} label="Email" value={fEmail} onChange={setFEmail} type="email" />
+              <Field icon={<Smartphone className="h-4 w-4" />} label="Teléfono 2 (opcional)" value={fTel2} onChange={setFTel2} type="tel" />
+              <Field icon={<MapPin className="h-4 w-4" />} label="Dirección (opcional)" value={fDireccion} onChange={setFDireccion} className="sm:col-span-2" />
+              <Field icon={<Hash className="h-4 w-4" />} label="Código postal (opcional)" value={fCodPostal} onChange={setFCodPostal} />
+            </div>
+
+            {/* Moto interesada */}
+            {(lead.modelo_raw || lead.seleccionar_peticion || lead.mensajes_preferencias) && (
+              <div className="rounded-xl bg-slate-50 p-4 space-y-1.5">
+                <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Interés del cliente</p>
+                {lead.modelo_raw && (
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Bike className="h-4 w-4 text-ymc-red" />
+                    {lead.modelo_raw}
+                  </div>
+                )}
+                {lead.seleccionar_peticion && (
+                  <div className="text-sm text-muted-foreground">Petición: {lead.seleccionar_peticion}</div>
+                )}
+                {lead.mensajes_preferencias && (
+                  <div className="text-sm text-muted-foreground italic">"{lead.mensajes_preferencias}"</div>
+                )}
+              </div>
+            )}
+
+            {/* Historial */}
+            <div className="rounded-xl bg-slate-50 p-4">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-2">Historial de llamadas</p>
+              {loadingHistory ? (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              ) : callHistory.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Primera vez que se le llama.</p>
+              ) : (
                 <div className="space-y-2">
-                  <Label className="text-sm font-semibold">¿Cómo ha ido la llamada? *</Label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {(Object.keys(CALL_RESULT_LABEL) as CallResult[])
-                      .filter((k) => k !== 'no_contactado')
-                      .map((k) => {
-                        const isCita = CITA_RESULTS.has(k);
-                        const isSelected = callResult === k;
-                        return (
-                          <Button
-                            key={k}
-                            type="button"
-                            variant={isSelected ? 'default' : 'outline'}
-                            className={`justify-start text-left h-auto py-3 px-4 ${
-                              isSelected && isCita
-                                ? 'bg-green-600 hover:bg-green-700 border-green-600 text-white'
-                                : isSelected
-                                ? 'bg-ymc-red hover:bg-ymc-redDark border-ymc-red text-white'
-                                : isCita
-                                ? 'border-green-200 hover:bg-green-50'
-                                : ''
-                            }`}
-                            onClick={() => setCallResult(k)}
-                          >
-                            <span className="text-sm leading-tight">{CALL_RESULT_LABEL[k]}</span>
-                          </Button>
-                        );
-                      })}
-                  </div>
-                </div>
-
-                {/* No interesado: motivo */}
-                {callResult === 'no_interesado' && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4 space-y-2">
-                    <Label className="text-sm font-semibold">Motivo de no interés *</Label>
-                    <div className="grid gap-1.5">
-                      {(Object.keys(NO_INTEREST_REASON_LABEL) as NoInterestReason[]).map((k) => (
-                        <Button
-                          key={k}
-                          type="button"
-                          variant={noInterestReason === k ? 'default' : 'outline'}
-                          className={`justify-start text-left ${
-                            noInterestReason === k
-                              ? 'bg-amber-600 hover:bg-amber-700 border-amber-600'
-                              : ''
-                          }`}
-                          onClick={() => setNoInterestReason(k)}
-                        >
-                          {NO_INTEREST_REASON_LABEL[k]}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Cita: fecha, hora, comercial */}
-                {callResult && isCitaResult(callResult) && (
-                  <div className="rounded-lg border border-green-200 bg-green-50/60 p-4 space-y-3">
-                    <Label className="text-sm font-semibold">Datos de la cita *</Label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label htmlFor="citaDate" className="text-xs text-muted-foreground">
-                          Fecha
-                        </Label>
-                        <Input
-                          id="citaDate"
-                          type="date"
-                          value={citaDate}
-                          onChange={(e) => setCitaDate(e.target.value)}
-                          required
-                          className="mt-1"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="citaTime" className="text-xs text-muted-foreground">
-                          Hora
-                        </Label>
-                        <Input
-                          id="citaTime"
-                          type="time"
-                          value={citaTime}
-                          onChange={(e) => setCitaTime(e.target.value)}
-                          required
-                          className="mt-1"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <Label htmlFor="citaComercial" className="text-xs text-muted-foreground">
-                        Comercial asignado *
-                      </Label>
-                      <select
-                        id="citaComercial"
-                        value={citaComercial}
-                        onChange={(e) => setCitaComercial(e.target.value)}
-                        className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
-                        required
-                      >
-                        <option value="">— Selecciona comercial —</option>
-                        {comerciales.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name} {c.role === 'gerente' ? '(gerente)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
-
-                {/* QMI: motivo */}
-                {callResult === 'quiere_mas_info_concesionario' && (
-                  <div className="rounded-lg border border-ymc-redLight bg-ymc-redLight/30 p-4 space-y-2">
-                    <Label htmlFor="qmiMotivo" className="text-sm font-semibold">
-                      ¿Sobre qué necesita más información?
-                    </Label>
-                    <Input
-                      id="qmiMotivo"
-                      value={qmiMotivo}
-                      onChange={(e) => setQmiMotivo(e.target.value)}
-                      placeholder="Ej: financiación, disponibilidad de stock, precio..."
-                      className="mt-1"
-                    />
-                  </div>
-                )}
-
-                {/* Comunicaciones comerciales */}
-                {callResult && (
-                  <div>
-                    <Label className="text-sm font-semibold">
-                      ¿Acepta comunicaciones comerciales?
-                    </Label>
-                    <div className="flex gap-2 mt-2">
-                      <Button
-                        type="button"
-                        variant={commsOptIn === true ? 'default' : 'outline'}
-                        onClick={() => setCommsOptIn(commsOptIn === true ? null : true)}
-                        className={
-                          commsOptIn === true ? 'bg-green-600 hover:bg-green-700 border-green-600' : ''
-                        }
-                        size="sm"
-                      >
-                        <CheckCircle2 className="h-4 w-4 mr-1" /> Sí
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={commsOptIn === false ? 'default' : 'outline'}
-                        onClick={() => setCommsOptIn(commsOptIn === false ? null : false)}
-                        className={
-                          commsOptIn === false ? 'bg-slate-700 hover:bg-slate-800 border-slate-700' : ''
-                        }
-                        size="sm"
-                      >
-                        <XCircle className="h-4 w-4 mr-1" /> No
-                      </Button>
-                      {commsOptIn !== null && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setCommsOptIn(null)}
-                          className="text-muted-foreground text-xs"
-                        >
-                          No preguntado
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Observaciones */}
-                {callResult && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="obs" className="text-sm font-semibold">
-                      Observaciones (opcional)
-                    </Label>
-                    <Textarea
-                      id="obs"
-                      value={observaciones}
-                      onChange={(e) => setObservaciones(e.target.value)}
-                      placeholder="Notas adicionales sobre la conversación..."
-                      rows={3}
-                    />
-                  </div>
-                )}
-
-                {/* Submit */}
-                {callResult && (
-                  <Button
-                    type="submit"
-                    size="lg"
-                    disabled={
-                      pending ||
-                      (callResult === 'no_interesado' && !noInterestReason) ||
-                      (isCitaResult(callResult) && !citaComercial)
-                    }
-                    className="w-full bg-ymc-red hover:bg-ymc-redDark text-white font-semibold text-base"
-                  >
-                    {pending ? (
-                      <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="h-5 w-5 mr-2" />
+                  <div className="text-sm">
+                    <strong>{lead.bq_total_attempts ?? callHistory.length}</strong> intentos en total.
+                    {lead.bq_last_call_at && (
+                      <span className="text-muted-foreground">
+                        {' '}Último:{' '}
+                        {format(new Date(lead.bq_last_call_at), "d MMM 'a las' HH:mm", { locale: es })}
+                        {lead.bq_last_agent && ` con ${lead.bq_last_agent}`}
+                      </span>
                     )}
-                    Guardar resultado
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          </form>
+                  </div>
+                  {prevQcode && (
+                    <div className="text-xs px-2 py-1 rounded-md bg-white border inline-block">
+                      Último resultado: <strong>{prevQcode}</strong>
+                    </div>
+                  )}
+                  {callHistory.slice(0, 4).map(c => (
+                    <div key={c.id} className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>{format(new Date(c.call_at), "d MMM · HH:mm", { locale: es })} — {c.agent_name || '—'}</span>
+                      {c.talk_time_s > 0
+                        ? <span className="text-green-700 font-medium">{Math.round(c.talk_time_s / 60)}min</span>
+                        : <span className="text-slate-400">Sin respuesta</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-      ) : (
-        /* Estado vacío: sin búsqueda activa */
-        <Card>
-          <CardContent className="py-14 text-center">
-            {initialQuery ? (
+
+        {/* Action buttons */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <button
+            onClick={() => setStep('cita')}
+            className="group flex flex-col items-center gap-3 rounded-2xl border-2 border-green-200 bg-green-50 hover:bg-green-100 hover:border-green-400 p-6 transition-all"
+          >
+            <span className="text-4xl">🗓️</span>
+            <div className="text-center">
+              <div className="font-display font-bold text-lg text-green-800">Quiere cita</div>
+              <div className="text-sm text-green-700 mt-0.5">Programar una visita al concesionario</div>
+            </div>
+            <ChevronRight className="h-5 w-5 text-green-600 group-hover:translate-x-1 transition-transform" />
+          </button>
+
+          <button
+            onClick={() => setStep('no_interesado')}
+            className="group flex flex-col items-center gap-3 rounded-2xl border-2 border-amber-200 bg-amber-50 hover:bg-amber-100 hover:border-amber-400 p-6 transition-all"
+          >
+            <span className="text-4xl">❌</span>
+            <div className="text-center">
+              <div className="font-display font-bold text-lg text-amber-800">No interesado</div>
+              <div className="text-sm text-amber-700 mt-0.5">Registrar motivo de rechazo</div>
+            </div>
+            <ChevronRight className="h-5 w-5 text-amber-600 group-hover:translate-x-1 transition-transform" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── STEP: cita ──────────────────────────────────────────────────────────────
+  if (step === 'cita') {
+    const canContinue = !!citaTipo && (!( citaTipo === 'prueba_moto') || !!citaModeloId) && !!citaDate && !!citaTime && !!citaComercialId;
+
+    return (
+      <div className="max-w-2xl mx-auto space-y-8">
+        <StepBack onClick={() => setStep('lead')} />
+
+        {/* Tipo de cita */}
+        <div>
+          <SectionTitle>¿Qué tipo de cita?</SectionTitle>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {CITA_TIPOS.map(t => (
+              <button
+                key={t.value}
+                onClick={() => { setCitaTipo(t.value); if (t.value !== 'prueba_moto') setCitaModeloId(''); }}
+                className={`flex flex-col items-center gap-2 rounded-xl border-2 p-5 transition-all ${
+                  citaTipo === t.value
+                    ? 'border-ymc-red bg-ymc-redLight shadow-sm'
+                    : 'border-slate-200 bg-white hover:border-ymc-red/40'
+                }`}
+              >
+                <span className="text-3xl">{t.emoji}</span>
+                <span className={`font-semibold text-sm text-center ${citaTipo === t.value ? 'text-ymc-red' : ''}`}>{t.label}</span>
+                <span className="text-xs text-muted-foreground text-center leading-tight">{t.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Modelo (solo prueba moto) */}
+        {citaTipo === 'prueba_moto' && (
+          <div>
+            <SectionTitle>¿Qué modelo quiere probar?</SectionTitle>
+            <select
+              value={citaModeloId}
+              onChange={e => setCitaModeloId(e.target.value)}
+              className="w-full border-2 rounded-xl px-4 py-3 text-base bg-white focus:border-ymc-red focus:outline-none"
+            >
+              <option value="">— Selecciona un modelo —</option>
+              {['scooter', 'naked', 'deportiva', 'trail', 'offroad', 'bicicleta'].map(fam => {
+                const famModels = models.filter(m => m.family === fam);
+                if (!famModels.length) return null;
+                return (
+                  <optgroup key={fam} label={fam.charAt(0).toUpperCase() + fam.slice(1)}>
+                    {famModels.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </optgroup>
+                );
+              })}
+            </select>
+          </div>
+        )}
+
+        {/* Fecha */}
+        {citaTipo && (
+          <div>
+            <SectionTitle>¿Qué día?</SectionTitle>
+            <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
+              {workingDays.map(d => {
+                const iso = format(d, 'yyyy-MM-dd');
+                const sel = citaDate && format(citaDate, 'yyyy-MM-dd') === iso;
+                return (
+                  <button
+                    key={iso}
+                    onClick={() => setCitaDate(d)}
+                    className={`shrink-0 flex flex-col items-center rounded-xl border-2 px-3 py-2 min-w-[60px] transition-all ${
+                      sel ? 'border-ymc-red bg-ymc-red text-white' : 'border-slate-200 bg-white hover:border-ymc-red/50'
+                    }`}
+                  >
+                    <span className={`text-xs font-medium ${sel ? 'text-white/80' : 'text-muted-foreground'}`}>
+                      {format(d, 'EEE', { locale: es }).slice(0, 3)}
+                    </span>
+                    <span className="font-bold text-base">{format(d, 'd')}</span>
+                    <span className={`text-[10px] ${sel ? 'text-white/70' : 'text-muted-foreground'}`}>
+                      {format(d, 'MMM', { locale: es })}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Hora */}
+        {citaDate && (
+          <div>
+            <SectionTitle>¿A qué hora?</SectionTitle>
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Mañana</p>
+                <div className="flex flex-wrap gap-2">
+                  {MORNING.map(t => (
+                    <button key={t} onClick={() => setCitaTime(t)}
+                      className={`rounded-lg border-2 px-4 py-2 text-sm font-mono font-medium transition-all ${citaTime === t ? 'border-ymc-red bg-ymc-red text-white' : 'border-slate-200 bg-white hover:border-ymc-red/50'}`}
+                    >{t}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Tarde</p>
+                <div className="flex flex-wrap gap-2">
+                  {AFTERNOON.map(t => (
+                    <button key={t} onClick={() => setCitaTime(t)}
+                      className={`rounded-lg border-2 px-4 py-2 text-sm font-mono font-medium transition-all ${citaTime === t ? 'border-ymc-red bg-ymc-red text-white' : 'border-slate-200 bg-white hover:border-ymc-red/50'}`}
+                    >{t}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Comercial */}
+        {citaTime && (
+          <div>
+            <SectionTitle>¿Con qué comercial?</SectionTitle>
+            <div className="flex flex-wrap gap-3">
+              {comerciales.map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => setCitaComercialId(c.id)}
+                  className={`rounded-xl border-2 px-5 py-3 transition-all ${citaComercialId === c.id ? 'border-ymc-red bg-ymc-red text-white font-semibold' : 'border-slate-200 bg-white hover:border-ymc-red/50'}`}
+                >
+                  {c.name} {c.role === 'gerente' && <span className="text-xs opacity-70">(gerente)</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <Button
+          onClick={() => setStep('confirm')}
+          disabled={!canContinue}
+          size="lg"
+          className="w-full h-14 bg-ymc-red hover:bg-ymc-redDark text-white text-base rounded-xl"
+        >
+          Revisar y confirmar <ChevronRight className="h-5 w-5 ml-1" />
+        </Button>
+      </div>
+    );
+  }
+
+  // ── STEP: no_interesado ─────────────────────────────────────────────────────
+  if (step === 'no_interesado') {
+    return (
+      <div className="max-w-xl mx-auto space-y-6">
+        <StepBack onClick={() => setStep('lead')} />
+        <SectionTitle>¿Por qué motivo no está interesado?</SectionTitle>
+
+        <div className="space-y-2">
+          {NO_INT_REASONS.map(r => (
+            <button
+              key={r.value}
+              onClick={() => setMotivo(r.value as NoInterestReason)}
+              className={`w-full flex items-center gap-4 rounded-xl border-2 px-5 py-4 text-left transition-all ${
+                motivo === r.value
+                  ? 'border-amber-500 bg-amber-50 font-semibold'
+                  : 'border-slate-200 bg-white hover:border-amber-300'
+              }`}
+            >
+              <span className="text-2xl">{r.emoji}</span>
+              <span className="text-base">{r.label}</span>
+              {motivo === r.value && <CheckCircle2 className="h-5 w-5 text-amber-600 ml-auto" />}
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="notas" className="text-sm font-medium text-muted-foreground">Observaciones (opcional)</Label>
+          <Textarea
+            id="notas"
+            value={notas}
+            onChange={e => setNotas(e.target.value)}
+            placeholder="Añade cualquier detalle relevante de la conversación..."
+            rows={3}
+            className="rounded-xl"
+          />
+        </div>
+
+        <Button
+          onClick={() => setStep('confirm')}
+          disabled={!motivo}
+          size="lg"
+          className="w-full h-14 bg-amber-500 hover:bg-amber-600 text-white text-base rounded-xl"
+        >
+          Revisar y confirmar <ChevronRight className="h-5 w-5 ml-1" />
+        </Button>
+      </div>
+    );
+  }
+
+  // ── STEP: confirm ──────────────────────────────────────────────────────────
+  if (step === 'confirm' && lead) {
+    const isCita = !motivo;
+    const reasonLabel = NO_INT_REASONS.find(r => r.value === motivo)?.label ?? motivo;
+
+    return (
+      <div className="max-w-xl mx-auto space-y-4">
+        <StepBack onClick={() => setStep(isCita ? 'cita' : 'no_interesado')} />
+
+        <div className="rounded-2xl border-2 border-slate-200 overflow-hidden">
+          {/* Header */}
+          <div className="bg-slate-800 px-6 py-4">
+            <h2 className="font-display text-xl font-bold text-white">Resumen de la gestión</h2>
+            <p className="text-slate-400 text-sm mt-0.5">Revisa los datos antes de confirmar</p>
+          </div>
+
+          {/* Datos del cliente */}
+          <ConfirmSection
+            title="Datos del cliente"
+            onEdit={() => setStep('lead')}
+          >
+            <ConfirmRow icon="👤" label="Nombre" value={fNombre || lead.nombre} />
+            <ConfirmRow icon="📞" label="Teléfono" value={fTel || lead.telefono || '—'} />
+            {fEmail && <ConfirmRow icon="✉️" label="Email" value={fEmail} />}
+            {fTel2 && <ConfirmRow icon="📱" label="Teléfono 2" value={fTel2} />}
+            {fDireccion && <ConfirmRow icon="📍" label="Dirección" value={fDireccion} />}
+            {fCodPostal && <ConfirmRow icon="#" label="Código postal" value={fCodPostal} />}
+            {lead.modelo_raw && <ConfirmRow icon="🏍️" label="Moto de interés" value={lead.modelo_raw} />}
+          </ConfirmSection>
+
+          {/* Resultado */}
+          <ConfirmSection
+            title={isCita ? 'Cita programada' : 'Motivo de no interés'}
+            onEdit={() => setStep(isCita ? 'cita' : 'no_interesado')}
+            accent={isCita ? 'green' : 'amber'}
+          >
+            {isCita ? (
               <>
-                <AlertTriangle className="h-10 w-10 text-amber-400 mx-auto mb-3" />
-                <p className="font-display font-semibold text-lg">
-                  No encontramos el teléfono{' '}
-                  <span className="font-mono">{initialQuery}</span>
-                </p>
-                <p className="text-sm text-muted-foreground mt-2 max-w-sm mx-auto">
-                  Puede que sea un lead nuevo de Presence no capturado aún en el Sheet, o que
-                  haya un formato distinto. Prueba sólo con los últimos 9 dígitos.
-                </p>
+                <ConfirmRow icon="📋" label="Tipo" value={CITA_TIPOS.find(t => t.value === citaTipo)?.label ?? ''} />
+                {citaTipo === 'prueba_moto' && citaModeloName && (
+                  <ConfirmRow icon="🏍️" label="Modelo a probar" value={citaModeloName} />
+                )}
+                <ConfirmRow icon="📅" label="Fecha" value={citaDate ? format(citaDate, "EEEE d 'de' MMMM", { locale: es }) : ''} />
+                <ConfirmRow icon="🕐" label="Hora" value={citaTime} />
+                <ConfirmRow icon="👤" label="Comercial" value={citaComercialName} />
               </>
             ) : (
               <>
-                <Phone className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-                <p className="font-display font-semibold text-lg text-muted-foreground">
-                  Introduce el teléfono de Presence para empezar
-                </p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Busca al lead y registra el resultado de tu llamada.
-                </p>
+                <ConfirmRow icon="❌" label="Motivo" value={reasonLabel} />
+                {notas && <ConfirmRow icon="📝" label="Observaciones" value={notas} />}
               </>
             )}
-          </CardContent>
-        </Card>
-      )}
+          </ConfirmSection>
+
+          {notas && isCita && (
+            <div className="px-6 pb-4">
+              <p className="text-xs text-muted-foreground">Notas: {notas}</p>
+            </div>
+          )}
+        </div>
+
+        <Button
+          onClick={handleConfirm}
+          disabled={pending}
+          size="lg"
+          className={`w-full h-16 text-white text-base font-bold rounded-xl ${isCita ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-500 hover:bg-amber-600'}`}
+        >
+          {pending ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <CheckCircle2 className="h-5 w-5 mr-2" />}
+          Confirmar datos y finalizar
+        </Button>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+// ─── Helper sub-components ────────────────────────────────────────────────────
+
+function Field({
+  icon, label, value, onChange, type = 'text', className = '',
+}: {
+  icon: React.ReactNode; label: string; value: string;
+  onChange: (v: string) => void; type?: string; className?: string;
+}) {
+  return (
+    <div className={`space-y-1 ${className}`}>
+      <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+        <span className="text-ymc-red">{icon}</span>{label}
+      </Label>
+      <Input
+        type={type}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="h-9 text-sm"
+      />
+    </div>
+  );
+}
+
+function ConfirmSection({
+  title, children, onEdit, accent,
+}: {
+  title: string; children: React.ReactNode; onEdit: () => void; accent?: 'green' | 'amber';
+}) {
+  const bg = accent === 'green' ? 'bg-green-50' : accent === 'amber' ? 'bg-amber-50' : 'bg-slate-50';
+  return (
+    <div className={`px-6 py-4 border-t ${bg}`}>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">{title}</p>
+        <button onClick={onEdit} className="inline-flex items-center gap-1 text-xs text-ymc-red hover:underline">
+          <Edit2 className="h-3 w-3" /> Editar
+        </button>
+      </div>
+      <div className="space-y-1.5">{children}</div>
+    </div>
+  );
+}
+
+function ConfirmRow({ icon, label, value }: { icon: string; label: string; value: string }) {
+  return (
+    <div className="flex items-start gap-2 text-sm">
+      <span className="w-5 text-center shrink-0">{icon}</span>
+      <span className="text-muted-foreground shrink-0">{label}:</span>
+      <span className="font-medium">{value}</span>
     </div>
   );
 }
