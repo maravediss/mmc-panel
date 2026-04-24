@@ -636,32 +636,67 @@ export default function OperatorWorkspace({
           </div>
 
           {/* ── Action column (1/3) — Yamaha style ── */}
-          <div className="lg:col-span-1 space-y-4 lg:pt-0">
-            <div className="rounded-2xl border-2 border-slate-100 bg-white p-6 space-y-5">
-              <div>
-                <p className="text-xs uppercase tracking-widest text-muted-foreground font-semibold mb-1">Resultado de la llamada</p>
-                <p className="text-sm text-muted-foreground">¿Cómo ha ido la gestión con este cliente?</p>
+          <div className="lg:col-span-1 space-y-4">
+            {/* Call result card */}
+            <div className="rounded-2xl overflow-hidden shadow-sm">
+              {/* Header band */}
+              <div className="bg-black px-6 pt-6 pb-5">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-white/50 font-semibold mb-2">
+                  Resultado de la llamada
+                </p>
+                <p className="font-display text-xl font-bold text-white leading-snug">
+                  ¿Cómo ha ido<br />la gestión?
+                </p>
               </div>
 
-              {/* Quiere cita */}
-              <YamahaButton onClick={() => setStep('cita')}>
-                Quiere cita
-              </YamahaButton>
+              {/* Divider accent */}
+              <div className="h-1 bg-ymc-red" />
 
-              {/* No interesado */}
-              <YamahaButton onClick={() => setStep('no_interesado')} variant="secondary">
-                No interesado
-              </YamahaButton>
+              {/* Buttons */}
+              <div className="bg-white px-5 py-5 space-y-3">
+                {/* Quiere cita */}
+                <button
+                  onClick={() => setStep('cita')}
+                  className="group w-full flex items-center justify-between gap-3 rounded-full bg-black text-white px-6 py-4 font-bold uppercase tracking-widest text-sm hover:bg-ymc-red transition-colors duration-200"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="text-lg">🗓️</span>
+                    <span>Quiere cita</span>
+                  </span>
+                  <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-1" />
+                </button>
+
+                {/* No interesado */}
+                <button
+                  onClick={() => setStep('no_interesado')}
+                  className="group w-full flex items-center justify-between gap-3 rounded-full bg-white text-black border-2 border-black px-6 py-4 font-bold uppercase tracking-widest text-sm hover:bg-ymc-red hover:border-ymc-red hover:text-white transition-all duration-200"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="text-lg">❌</span>
+                    <span>No interesado</span>
+                  </span>
+                  <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-1" />
+                </button>
+              </div>
             </div>
 
-            {/* Lead entry date summary pill */}
-            <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-xs text-muted-foreground space-y-1">
-              <div><span className="font-medium text-foreground">Lead:</span> {formatFechaEntrada(lead.fecha_entrada)}</div>
+            {/* Lead meta pill */}
+            <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-xs text-muted-foreground space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-foreground uppercase tracking-wide text-[10px]">Lead</span>
+                <span>{formatFechaEntrada(lead.fecha_entrada)}</span>
+              </div>
               {lead.status && (
-                <div><span className="font-medium text-foreground">Estado:</span> {lead.status}</div>
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-foreground uppercase tracking-wide text-[10px]">Estado</span>
+                  <span className="capitalize">{lead.status}</span>
+                </div>
               )}
               {lead.formulario && (
-                <div className="truncate"><span className="font-medium text-foreground">Formulario:</span> {lead.formulario}</div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-foreground uppercase tracking-wide text-[10px] shrink-0">Form</span>
+                  <span className="truncate text-right">{lead.formulario}</span>
+                </div>
               )}
             </div>
           </div>
