@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { getCurrentCommercial } from '@/lib/session';
 import AppShell from '@/components/AppShell';
 import OperatorWorkspace from './OperatorWorkspace';
@@ -10,6 +10,7 @@ export default async function OperatorPage() {
   if (!['operadora', 'admin', 'gerente'].includes(commercial.role)) redirect('/');
 
   const supabase = createClient();
+  const adminSupabase = createAdminClient();
 
   const [modelsRes, comercialesRes] = await Promise.all([
     supabase
@@ -19,7 +20,7 @@ export default async function OperatorPage() {
       .neq('name', 'Otro no especificado')
       .order('family')
       .order('name'),
-    supabase
+    adminSupabase
       .from('mmc_commercials')
       .select('id, name, role')
       .in('role', ['comercial', 'gerente'])
