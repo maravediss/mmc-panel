@@ -60,9 +60,7 @@ type ModeloInfo = { id: string; name: string; family: string; cc: number | null 
 type TLEvent =
   | { kind: 'entry'; date: string }
   | { kind: 'call'; date: string; data: any }
-  | { kind: 'report'; date: string; data: any }
-  | { kind: 'appointment'; date: string; data: any }
-  | { kind: 'sale'; date: string; data: any };
+  | { kind: 'report'; date: string; data: any };
 
 interface Props {
   lead: LeadFull;
@@ -211,11 +209,9 @@ function ModelCombobox({
 
 function TimelineItem({ ev }: { ev: TLEvent }) {
   const dotCls = (() => {
-    if (ev.kind === 'entry')       return 'bg-slate-400 ring-slate-100';
-    if (ev.kind === 'sale')        return 'bg-green-500 ring-green-100';
-    if (ev.kind === 'appointment') return 'bg-amber-500 ring-amber-100';
-    if (ev.kind === 'report')      return 'bg-ymc-red ring-red-100';
-    if (ev.kind === 'call')        return (ev.data.talk_time_s ?? 0) > 0 ? 'bg-green-400 ring-green-100' : 'bg-slate-200 ring-slate-50';
+    if (ev.kind === 'entry')  return 'bg-slate-400 ring-slate-100';
+    if (ev.kind === 'report') return 'bg-ymc-red ring-red-100';
+    if (ev.kind === 'call')   return (ev.data.talk_time_s ?? 0) > 0 ? 'bg-green-400 ring-green-100' : 'bg-slate-200 ring-slate-50';
     return 'bg-slate-300 ring-slate-100';
   })();
 
@@ -287,41 +283,6 @@ function TimelineItem({ ev }: { ev: TLEvent }) {
         );
       })()}
 
-      {ev.kind === 'appointment' && (() => {
-        const a = ev.data;
-        return (
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-0.5">Cita</div>
-            <div className="text-sm font-medium text-slate-800">
-              {APPT_TYPE_LABEL[a.tipo as AppointmentType]}
-              {' — '}
-              {format(new Date(a.fecha_cita), "d MMM 'a las' HH:mm", { locale: es })}
-            </div>
-            <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1">
-                <span className={`h-2 w-2 rounded-full ${APPT_STATUS_COLOR[a.status as AppointmentStatus]}`} />
-                {APPT_STATUS_LABEL[a.status as AppointmentStatus]}
-              </span>
-              {a.commercial?.name && <span>· {a.commercial.name}</span>}
-            </div>
-          </div>
-        );
-      })()}
-
-      {ev.kind === 'sale' && (() => {
-        const s = ev.data;
-        return (
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-widest text-green-600 mb-0.5">Venta</div>
-            <div className="text-sm font-medium text-slate-800">{s.model_raw ?? '—'}</div>
-            <div className="text-xs text-muted-foreground mt-0.5">
-              {format(new Date(s.fecha_compra), "d MMM yyyy", { locale: es })}
-              {s.margen_eur && ` · ${Number(s.margen_eur).toFixed(0)} € margen`}
-              {s.commercial?.name && ` · ${s.commercial.name}`}
-            </div>
-          </div>
-        );
-      })()}
     </>
   );
 }
@@ -401,14 +362,15 @@ export default function LeadDetailClient({
     ? (NO_INTEREST_REASON_LABEL[lead.lost_reason as NoInterestReason] ?? friendlyResult(lead.lost_reason))
     : null;
 
-  // Unified timeline (most recent first)
+  // Timeline: solo entrada + llamadas + reportes (citas/ventas ya están en sidebar)
+  const MIN_VALID = new Date('2020-01-01').getTime();
   const tlEvents: TLEvent[] = [
     { kind: 'entry' as const, date: lead.fecha_entrada },
     ...calls.map(c => ({ kind: 'call' as const, date: c.call_at, data: c })),
     ...reports.map(r => ({ kind: 'report' as const, date: r.created_at, data: r })),
-    ...appointments.map(a => ({ kind: 'appointment' as const, date: a.fecha_cita, data: a })),
-    ...sales.map(s => ({ kind: 'sale' as const, date: s.fecha_compra, data: s })),
-  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  ]
+    .filter(e => new Date(e.date).getTime() >= MIN_VALID)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const hasPresence = lead.bq_total_attempts != null || !!lead.bq_last_agent;
 
