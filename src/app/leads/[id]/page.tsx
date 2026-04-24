@@ -7,15 +7,16 @@ import {
   Phone,
   Mail,
   Calendar,
-  Clock,
   User,
   Bike,
   Headphones,
   CheckCircle2,
-  XCircle,
   TrendingUp,
   MessageSquare,
   Tag,
+  MapPin,
+  Hash,
+  Smartphone,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { getCurrentCommercial } from '@/lib/session';
@@ -158,11 +159,35 @@ export default async function LeadDetailPage({
                 <span className="font-medium">{lead.telefono}</span>
               </a>
             )}
+            {lead.telefono2 && (
+              <a href={`tel:${lead.telefono2}`} className="inline-flex items-center gap-2 hover:underline text-muted-foreground">
+                <Smartphone className="h-4 w-4 text-ymc-red" />
+                <span>{lead.telefono2}</span>
+              </a>
+            )}
             {lead.email && (
               <a href={`mailto:${lead.email}`} className="inline-flex items-center gap-2 hover:underline">
                 <Mail className="h-4 w-4 text-ymc-red" />
                 <span className="truncate">{lead.email}</span>
               </a>
+            )}
+            {(lead.direccion || lead.codigo_postal) && (
+              <div className="inline-flex items-center gap-2 text-muted-foreground">
+                <MapPin className="h-4 w-4 text-ymc-red shrink-0" />
+                <span>{[lead.direccion, lead.codigo_postal].filter(Boolean).join(', ')}</span>
+              </div>
+            )}
+            {lead.provincia && (
+              <div className="inline-flex items-center gap-2 text-muted-foreground">
+                <Hash className="h-4 w-4 text-ymc-red shrink-0" />
+                <span>Provincia: {lead.provincia}</span>
+              </div>
+            )}
+            {lead.tipo_interes && (
+              <div className="inline-flex items-center gap-2 text-muted-foreground">
+                <CheckCircle2 className="h-4 w-4 text-ymc-red shrink-0" />
+                <span>{lead.tipo_interes}</span>
+              </div>
             )}
             {lead.mensajes_preferencias && (
               <div className="md:col-span-2 text-muted-foreground inline-flex items-start gap-2">

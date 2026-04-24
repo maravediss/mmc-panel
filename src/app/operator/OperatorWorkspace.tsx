@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import {
   Search, Phone, Mail, Bike, ArrowLeft, ChevronRight,
   Edit2, CheckCircle2, ExternalLink,
-  MapPin, Hash, Smartphone, User, Loader2, AlertCircle,
+  MapPin, Hash, Smartphone, User, Loader2, AlertCircle, Save,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,8 @@ type Lead = {
 };
 
 // ─── Constants ───────────────────────────────────────────────────────────────
+
+const TIPO_INTERES_OPTIONS = ['Quiere moto nueva', 'Quiere cita taller'];
 
 const CITA_TIPOS: { value: CitaTipo; label: string; emoji: string; desc: string }[] = [
   { value: 'prueba_moto',    label: 'Prueba de moto',         emoji: '🏍️', desc: 'El cliente quiere probar una moto' },
@@ -98,8 +100,7 @@ function formatFechaEntrada(raw: string): string {
 }
 
 function isValidPhone(raw: string): boolean {
-  const digits = raw.replace(/[\s\-\+\(\)]/g, '').replace(/[^0-9]/g, '');
-  return digits.length >= 6 && raw.replace(/[^0-9]/g, '').length >= 6;
+  return raw.replace(/[^0-9]/g, '').length >= 6;
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -116,7 +117,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="font-display text-lg font-bold mb-4">{children}</h2>;
 }
 
-// Model combobox with predictive search
+// Model combobox with predictive search (sorted alphabetically by name)
 function ModelCombobox({
   models,
   value,
@@ -130,10 +131,12 @@ function ModelCombobox({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const selectedModel = models.find(m => m.id === value);
+  const sortedModels = [...models].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  const selectedModel = sortedModels.find(m => m.id === value);
 
   useEffect(() => {
     if (selectedModel) setQuery(selectedModel.name);
+    else if (!value) setQuery('');
   }, [value]);
 
   useEffect(() => {
@@ -145,8 +148,8 @@ function ModelCombobox({
   }, []);
 
   const filtered = query.trim()
-    ? models.filter(m => m.name.toLowerCase().includes(query.toLowerCase())).slice(0, 12)
-    : models.slice(0, 12);
+    ? sortedModels.filter(m => m.name.toLowerCase().includes(query.toLowerCase())).slice(0, 14)
+    : sortedModels.slice(0, 14);
 
   return (
     <div ref={ref} className="relative">
@@ -215,6 +218,10 @@ export default function OperatorWorkspace({
   const [fLeadModeloId, setFLeadModeloId] = useState('');
   const [fLeadModeloName, setFLeadModeloName] = useState('');
 
+  // Save state for the "Guardar cambios" button
+  const [saving, setSaving] = useState(false);
+  const [savedOk, setSavedOk] = useState(false);
+
   // Cita
   const [citaTipo, setCitaTipo] = useState<CitaTipo | null>(null);
   const [citaModeloId, setCitaModeloId] = useState('');
@@ -230,27 +237,67 @@ export default function OperatorWorkspace({
   const [doneMsg, setDoneMsg] = useState('');
   const [doneIsCita, setDoneIsCita] = useState(false);
 
+  // Compute original values for dirty check
+  function getOriginals(l: Lead) {
+    const initialModel = models.find(m => m.id === l.modelo_id);
+    return {
+      nombre: l.nombre ?? '',
+      tel: l.telefono ?? '',
+      email: l.email ?? '',
+      tel2: l.telefono2 ?? '',
+      direccion: l.direccion ?? '',
+      codPostal: l.codigo_postal ?? '',
+      provincia: l.provincia ?? 'Málaga',
+      tipoInteres: l.tipo_interes ?? 'Quiere moto nueva',
+      modeloId: l.modelo_id ?? '',
+      modeloName: initialModel?.name ?? '',
+    };
+  }
+
   // Load lead fields when found
   useEffect(() => {
     if (!lead) return;
-    setFNombre(lead.nombre ?? '');
-    setFTel(lead.telefono ?? '');
-    setFEmail(lead.email ?? '');
-    setFTel2(lead.telefono2 ?? '');
-    setFDireccion(lead.direccion ?? '');
-    setFCodPostal(lead.codigo_postal ?? '');
-    setFProvincia(lead.provincia ?? 'Málaga');
-    setFTipoInteres(lead.tipo_interes ?? 'Quiere moto nueva');
-    const initialModel = models.find(m => m.id === lead.modelo_id);
-    setFLeadModeloId(lead.modelo_id ?? '');
-    setFLeadModeloName(initialModel?.name ?? lead.modelo_raw ?? '');
+    const orig = getOriginals(lead);
+    setFNombre(orig.nombre);
+    setFTel(orig.tel);
+    setFEmail(orig.email);
+    setFTel2(orig.tel2);
+    setFDireccion(orig.direccion);
+    setFCodPostal(orig.codPostal);
+    setFProvincia(orig.provincia);
+    setFTipoInteres(orig.tipoInteres);
+    setFLeadModeloId(orig.modeloId);
+    setFLeadModeloName(orig.modeloName);
+    setSavedOk(false);
   }, [lead]);
+
+  // Dirty detection
+  const isDirty = lead ? (() => {
+    const orig = getOriginals(lead);
+    return (
+      fNombre !== orig.nombre ||
+      fTel !== orig.tel ||
+      fEmail !== orig.email ||
+      fTel2 !== orig.tel2 ||
+      fDireccion !== orig.direccion ||
+      fCodPostal !== orig.codPostal ||
+      fProvincia !== orig.provincia ||
+      fTipoInteres !== orig.tipoInteres ||
+      fLeadModeloId !== orig.modeloId
+    );
+  })() : false;
+
+  // When a field changes, clear the "saved" confirmation
+  useEffect(() => {
+    if (savedOk) setSavedOk(false);
+  }, [fNombre, fTel, fEmail, fTel2, fDireccion, fCodPostal, fProvincia, fTipoInteres, fLeadModeloId]);
 
   // Load call history when lead changes
   useEffect(() => {
     if (!lead) { setCallHistory([]); setFirstCallAt(null); return; }
     setLoadingHistory(true);
-    createClient()
+    const client = createClient();
+    client
       .from('mmc_calls')
       .select('id, call_at, agent_name, qcode_description, qcode_type, talk_time_s')
       .eq('lead_id', lead.id)
@@ -258,9 +305,8 @@ export default function OperatorWorkspace({
       .limit(3)
       .then(async ({ data }) => {
         setCallHistory(data ?? []);
-        // Fetch the first call (oldest)
         if (data && data.length > 0) {
-          const { data: oldest } = await createClient()
+          const { data: oldest } = await client
             .from('mmc_calls')
             .select('call_at')
             .eq('lead_id', lead.id)
@@ -303,6 +349,31 @@ export default function OperatorWorkspace({
     }
   }
 
+  async function handleSaveFields() {
+    if (!lead || !isDirty) return;
+    setSaving(true);
+    const updates: Record<string, string | null> = {
+      nombre: fNombre || lead.nombre,
+      telefono: fTel || lead.telefono,
+      email: fEmail || null,
+      telefono2: fTel2 || null,
+      direccion: fDireccion || null,
+      codigo_postal: fCodPostal || null,
+      provincia: fProvincia || 'Málaga',
+      tipo_interes: fTipoInteres || null,
+      modelo_id: fLeadModeloId || null,
+    };
+    const { error } = await supabase.from('mmc_leads').update(updates).eq('id', lead.id);
+    setSaving(false);
+    if (error) {
+      toast.error('Error guardando cambios', { description: error.message });
+    } else {
+      // Update local lead state to reflect saved values
+      setLead(prev => prev ? { ...prev, ...updates, nombre: updates.nombre ?? prev.nombre } as Lead : prev);
+      setSavedOk(true);
+    }
+  }
+
   function resetAll() {
     setStep('search');
     setTel('');
@@ -319,12 +390,13 @@ export default function OperatorWorkspace({
     setMotivo('');
     setNotas('');
     setDoneMsg('');
+    setSavedOk(false);
   }
 
   async function handleConfirm() {
     if (!lead) return;
     startTransition(async () => {
-      // 1. Update lead fields
+      // 1. Update lead fields (also saves any unsaved edits)
       const updates: Record<string, string | null> = {
         nombre: fNombre || lead.nombre,
         telefono: fTel || lead.telefono,
@@ -406,7 +478,6 @@ export default function OperatorWorkspace({
 
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center px-4">
-        {/* Done reinforcement message */}
         {step === 'done' && doneMsg && (
           <div className={`w-full max-w-lg mb-8 rounded-xl border p-5 text-center ${doneIsCita ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
             <div className="text-3xl mb-2">{doneIsCita ? '🎉' : '💪'}</div>
@@ -447,7 +518,6 @@ export default function OperatorWorkspace({
             Formato de teléfono no válido. Introduce solo el número del cliente.
           </div>
         )}
-
         {notFound && !invalidPhone && (
           <div className="w-full max-w-lg mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-center text-sm text-amber-800">
             No encontramos ningún cliente con ese teléfono. Puede ser un lead nuevo o un número con formato distinto.
@@ -475,7 +545,7 @@ export default function OperatorWorkspace({
                 <User className="h-5 w-5 text-white/80" />
                 <span className="text-white/70 text-sm">Cliente identificado</span>
               </div>
-              <h2 className="font-display text-2xl font-bold text-white mt-0.5">{lead.nombre}</h2>
+              <h2 className="font-display text-2xl font-bold text-white mt-0.5">{fNombre || lead.nombre}</h2>
             </div>
             <Link href={`/leads/${lead.id}`} target="_blank" className="text-white/60 hover:text-white inline-flex items-center gap-1 text-xs">
               Ficha completa <ExternalLink className="h-3 w-3" />
@@ -510,17 +580,18 @@ export default function OperatorWorkspace({
             {/* Interés del cliente */}
             <div className="rounded-xl bg-slate-50 p-4 space-y-3">
               <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Interés del cliente</p>
-              {/* Tipo de interés */}
+              {/* Tipo de interés — dropdown */}
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Interés</Label>
-                <Input
+                <Label className="text-xs text-muted-foreground">Tipo de interés</Label>
+                <select
                   value={fTipoInteres}
                   onChange={e => setFTipoInteres(e.target.value)}
-                  placeholder="Quiere moto nueva"
-                  className="h-9 text-sm bg-white"
-                />
+                  className="w-full h-9 rounded-md border border-input bg-white px-3 py-1 text-sm shadow-sm focus:border-ymc-red focus:outline-none"
+                >
+                  {TIPO_INTERES_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
               </div>
-              {/* Modelo */}
+              {/* Modelo — combobox predictivo, orden alfabético */}
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
                   <Bike className="h-3 w-3 text-ymc-red" />
@@ -543,6 +614,29 @@ export default function OperatorWorkspace({
               )}
             </div>
 
+            {/* Guardar cambios */}
+            <div className="space-y-2">
+              <Button
+                type="button"
+                onClick={handleSaveFields}
+                disabled={!isDirty || saving}
+                variant="outline"
+                size="sm"
+                className={`w-full border-2 transition-all ${isDirty ? 'border-ymc-red text-ymc-red hover:bg-ymc-redLight' : 'border-slate-200 text-muted-foreground cursor-not-allowed'}`}
+              >
+                {saving
+                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Guardando...</>
+                  : <><Save className="h-4 w-4 mr-2" />Guardar cambios</>
+                }
+              </Button>
+              {savedOk && (
+                <p className="text-center text-sm text-green-700 font-medium flex items-center justify-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4" />
+                  Sus cambios se han guardado correctamente.
+                </p>
+              )}
+            </div>
+
             {/* Historial */}
             <div className="rounded-xl bg-slate-50 p-4">
               <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-2">Historial de llamadas</p>
@@ -550,7 +644,6 @@ export default function OperatorWorkspace({
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               ) : (
                 <div className="space-y-2">
-                  {/* Entry + first call dates */}
                   <div className="flex gap-4 text-xs text-muted-foreground">
                     <span>
                       <strong className="text-foreground">Entrada lead:</strong>{' '}
@@ -563,7 +656,6 @@ export default function OperatorWorkspace({
                       </span>
                     )}
                   </div>
-
                   {callHistory.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Primera vez que se le llama.</p>
                   ) : (
@@ -638,7 +730,6 @@ export default function OperatorWorkspace({
       <div className="max-w-2xl mx-auto space-y-8">
         <StepBack onClick={() => setStep('lead')} />
 
-        {/* Tipo de cita */}
         <div>
           <SectionTitle>¿Qué tipo de cita?</SectionTitle>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -660,7 +751,6 @@ export default function OperatorWorkspace({
           </div>
         </div>
 
-        {/* Modelo (solo prueba moto) */}
         {citaTipo === 'prueba_moto' && (
           <div>
             <SectionTitle>¿Qué modelo quiere probar?</SectionTitle>
@@ -670,20 +760,13 @@ export default function OperatorWorkspace({
               className="w-full border-2 rounded-xl px-4 py-3 text-base bg-white focus:border-ymc-red focus:outline-none"
             >
               <option value="">— Selecciona un modelo —</option>
-              {['scooter', 'naked', 'deportiva', 'trail', 'offroad', 'bicicleta'].map(fam => {
-                const famModels = models.filter(m => m.family === fam);
-                if (!famModels.length) return null;
-                return (
-                  <optgroup key={fam} label={fam.charAt(0).toUpperCase() + fam.slice(1)}>
-                    {famModels.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                  </optgroup>
-                );
-              })}
+              {[...models].sort((a, b) => a.name.localeCompare(b.name, 'es')).map(m => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
             </select>
           </div>
         )}
 
-        {/* Fecha */}
         {citaTipo && (
           <div>
             <SectionTitle>¿Qué día?</SectionTitle>
@@ -713,7 +796,6 @@ export default function OperatorWorkspace({
           </div>
         )}
 
-        {/* Hora */}
         {citaDate && (
           <div>
             <SectionTitle>¿A qué hora?</SectionTitle>
@@ -742,7 +824,6 @@ export default function OperatorWorkspace({
           </div>
         )}
 
-        {/* Comercial */}
         {citaTime && (
           <div>
             <SectionTitle>¿Con qué comercial?</SectionTitle>
@@ -831,13 +912,11 @@ export default function OperatorWorkspace({
         <StepBack onClick={() => setStep(isCita ? 'cita' : 'no_interesado')} />
 
         <div className="rounded-2xl border-2 border-slate-200 overflow-hidden">
-          {/* Header */}
           <div className="bg-slate-800 px-6 py-4">
             <h2 className="font-display text-xl font-bold text-white">Resumen de la gestión</h2>
             <p className="text-slate-400 text-sm mt-0.5">Revisa los datos antes de confirmar</p>
           </div>
 
-          {/* Datos del cliente */}
           <ConfirmSection title="Datos del cliente" onEdit={() => setStep('lead')}>
             <ConfirmRow icon="👤" label="Nombre" value={fNombre || lead.nombre} />
             <ConfirmRow icon="📞" label="Teléfono" value={fTel || lead.telefono || '—'} />
@@ -850,7 +929,6 @@ export default function OperatorWorkspace({
             {fLeadModeloName && <ConfirmRow icon="🏍️" label="Modelo de interés" value={fLeadModeloName} />}
           </ConfirmSection>
 
-          {/* Resultado */}
           <ConfirmSection
             title={isCita ? 'Cita programada' : 'Motivo de no interés'}
             onEdit={() => setStep(isCita ? 'cita' : 'no_interesado')}
