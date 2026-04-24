@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { format, isToday, isTomorrow, isPast, subHours } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -51,6 +52,11 @@ export default async function HomePage() {
     );
   }
 
+  // Operadoras van directamente a su panel, sin home
+  if (commercial.role === 'operadora') {
+    redirect('/operator');
+  }
+
   const supabase = createClient();
   const now = new Date();
   const today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
@@ -58,7 +64,6 @@ export default async function HomePage() {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
   const isManager = commercial.role === 'admin' || commercial.role === 'gerente';
-  const isOperator = commercial.role === 'operadora';
 
   const [
     { count: leadsNew24h },
@@ -205,7 +210,7 @@ export default async function HomePage() {
             cta="Ver agenda"
           />
         )}
-        {(isOperator || isManager) && (
+        {isManager && (
           <AccessCard
             icon={<Headphones className="h-6 w-6" />}
             title="Call center"

@@ -17,6 +17,35 @@ export default async function AppShell({
   const isOperator = role === 'operadora';
   const isCommercial = role === 'comercial';
 
+  // Operadoras: layout minimalista sin sidebar
+  if (isOperator) {
+    return (
+      <div className="min-h-screen flex flex-col bg-slate-50">
+        <header className="sticky top-0 z-30 bg-white border-b px-6 py-3 flex items-center justify-between">
+          <Link href="/operator">
+            <Image
+              src="/brand/ymc-logo-horizontal.svg"
+              alt="Yamaha Málaga Center"
+              width={180}
+              height={26}
+              priority
+              className="h-6 w-auto"
+            />
+          </Link>
+          <div className="flex items-center gap-4">
+            {commercial && (
+              <span className="text-sm text-muted-foreground hidden sm:block">
+                {commercial.display_name || commercial.name}
+              </span>
+            )}
+            <SignOutButton compact />
+          </div>
+        </header>
+        <main className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full">{children}</main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex bg-slate-50">
       {/* Sidebar desktop */}
@@ -40,13 +69,6 @@ export default async function AppShell({
           <NavLink href="/" icon={<Home className="h-4 w-4" />} label="Inicio" />
           {(isCommercial || isManager) && (
             <NavLink href="/appointments" icon={<Calendar className="h-4 w-4" />} label="Mis citas" />
-          )}
-          {isOperator && (
-            <NavLink
-              href="/operator"
-              icon={<Headphones className="h-4 w-4" />}
-              label="Mi panel"
-            />
           )}
           {isManager && (
             <NavLink
