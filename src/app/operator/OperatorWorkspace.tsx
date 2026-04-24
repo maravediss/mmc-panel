@@ -6,9 +6,9 @@ import { format, addDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { toast } from 'sonner';
 import {
-  Search, Phone, Mail, Bike, ArrowLeft, ChevronRight,
+  Search, Phone, Mail, Bike, ArrowLeft, ChevronRight, ArrowRight,
   Edit2, CheckCircle2, ExternalLink,
-  MapPin, Hash, Smartphone, User, Loader2, AlertCircle, Save,
+  MapPin, Hash, Smartphone, User, Loader2, AlertCircle,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -103,6 +103,30 @@ function isValidPhone(raw: string): boolean {
   return raw.replace(/[^0-9]/g, '').length >= 6;
 }
 
+// Only saves fields the user actually changed vs. the originally loaded lead.
+// This prevents overwriting external DB corrections with stale React state.
+function buildDiffUpdates(
+  lead: Lead,
+  fields: {
+    fNombre: string; fTel: string; fEmail: string; fTel2: string;
+    fDireccion: string; fCodPostal: string; fProvincia: string;
+    fTipoInteres: string; fLeadModeloId: string;
+  }
+): Record<string, string | null> {
+  const { fNombre, fTel, fEmail, fTel2, fDireccion, fCodPostal, fProvincia, fTipoInteres, fLeadModeloId } = fields;
+  const updates: Record<string, string | null> = {};
+  if (fNombre !== (lead.nombre ?? ''))                    updates.nombre = fNombre || lead.nombre;
+  if (fTel !== (lead.telefono ?? ''))                      updates.telefono = fTel || null;
+  if (fEmail !== (lead.email ?? ''))                       updates.email = fEmail || null;
+  if (fTel2 !== (lead.telefono2 ?? ''))                    updates.telefono2 = fTel2 || null;
+  if (fDireccion !== (lead.direccion ?? ''))               updates.direccion = fDireccion || null;
+  if (fCodPostal !== (lead.codigo_postal ?? ''))           updates.codigo_postal = fCodPostal || null;
+  if (fProvincia !== (lead.provincia ?? 'Málaga'))         updates.provincia = fProvincia;
+  if (fTipoInteres !== (lead.tipo_interes ?? 'Quiere moto nueva')) updates.tipo_interes = fTipoInteres || null;
+  if (fLeadModeloId !== (lead.modelo_id ?? ''))            updates.modelo_id = fLeadModeloId || null;
+  return updates;
+}
+
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
 function StepBack({ onClick, label = 'Volver' }: { onClick: () => void; label?: string }) {
@@ -115,6 +139,34 @@ function StepBack({ onClick, label = 'Volver' }: { onClick: () => void; label?: 
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="font-display text-lg font-bold mb-4">{children}</h2>;
+}
+
+// Yamaha-style pill button (black → red on hover)
+function YamahaButton({
+  onClick,
+  children,
+  variant = 'primary',
+  disabled = false,
+  className = '',
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+  variant?: 'primary' | 'secondary';
+  disabled?: boolean;
+  className?: string;
+}) {
+  const base =
+    'group w-full flex items-center justify-between gap-4 rounded-full px-7 py-5 font-bold uppercase tracking-widest text-sm transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed';
+  const colors =
+    variant === 'secondary'
+      ? 'bg-white text-black border-2 border-black hover:bg-ymc-red hover:border-ymc-red hover:text-white'
+      : 'bg-black text-white hover:bg-ymc-red';
+  return (
+    <button onClick={onClick} disabled={disabled} className={`${base} ${colors} ${className}`}>
+      <span>{children}</span>
+      <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-1" />
+    </button>
+  );
 }
 
 // Model combobox with predictive search (sorted alphabetically by name)
@@ -193,7 +245,6 @@ export default function OperatorWorkspace({
   const supabase = createClient();
   const [pending, startTransition] = useTransition();
 
-  // Navigation
   const [step, setStep] = useState<Step>('search');
 
   // Search
@@ -218,7 +269,7 @@ export default function OperatorWorkspace({
   const [fLeadModeloId, setFLeadModeloId] = useState('');
   const [fLeadModeloName, setFLeadModeloName] = useState('');
 
-  // Save state for the "Guardar cambios" button
+  // Save state
   const [saving, setSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
 
@@ -237,69 +288,44 @@ export default function OperatorWorkspace({
   const [doneMsg, setDoneMsg] = useState('');
   const [doneIsCita, setDoneIsCita] = useState(false);
 
-  // Compute original values for dirty check
-  function getOriginals(l: Lead) {
-    const initialModel = models.find(m => m.id === l.modelo_id);
-    return {
-      nombre: l.nombre ?? '',
-      tel: l.telefono ?? '',
-      email: l.email ?? '',
-      tel2: l.telefono2 ?? '',
-      direccion: l.direccion ?? '',
-      codPostal: l.codigo_postal ?? '',
-      provincia: l.provincia ?? 'Málaga',
-      tipoInteres: l.tipo_interes ?? 'Quiere moto nueva',
-      modeloId: l.modelo_id ?? '',
-      modeloName: initialModel?.name ?? '',
-    };
+  // Helpers
+  function currentFields() {
+    return { fNombre, fTel, fEmail, fTel2, fDireccion, fCodPostal, fProvincia, fTipoInteres, fLeadModeloId };
   }
 
   // Load lead fields when found
   useEffect(() => {
     if (!lead) return;
-    const orig = getOriginals(lead);
-    setFNombre(orig.nombre);
-    setFTel(orig.tel);
-    setFEmail(orig.email);
-    setFTel2(orig.tel2);
-    setFDireccion(orig.direccion);
-    setFCodPostal(orig.codPostal);
-    setFProvincia(orig.provincia);
-    setFTipoInteres(orig.tipoInteres);
-    setFLeadModeloId(orig.modeloId);
-    setFLeadModeloName(orig.modeloName);
+    const initialModel = models.find(m => m.id === lead.modelo_id);
+    setFNombre(lead.nombre ?? '');
+    setFTel(lead.telefono ?? '');
+    setFEmail(lead.email ?? '');
+    setFTel2(lead.telefono2 ?? '');
+    setFDireccion(lead.direccion ?? '');
+    setFCodPostal(lead.codigo_postal ?? '');
+    setFProvincia(lead.provincia ?? 'Málaga');
+    setFTipoInteres(lead.tipo_interes ?? 'Quiere moto nueva');
+    setFLeadModeloId(lead.modelo_id ?? '');
+    setFLeadModeloName(initialModel?.name ?? '');
     setSavedOk(false);
   }, [lead]);
 
-  // Dirty detection
-  const isDirty = lead ? (() => {
-    const orig = getOriginals(lead);
-    return (
-      fNombre !== orig.nombre ||
-      fTel !== orig.tel ||
-      fEmail !== orig.email ||
-      fTel2 !== orig.tel2 ||
-      fDireccion !== orig.direccion ||
-      fCodPostal !== orig.codPostal ||
-      fProvincia !== orig.provincia ||
-      fTipoInteres !== orig.tipoInteres ||
-      fLeadModeloId !== orig.modeloId
-    );
-  })() : false;
+  // Dirty detection (only fields that diverge from loaded lead)
+  const isDirty = lead ? Object.keys(buildDiffUpdates(lead, currentFields())).length > 0 : false;
 
-  // When a field changes, clear the "saved" confirmation
+  // Clear saved-ok badge when user edits again
   useEffect(() => {
     if (savedOk) setSavedOk(false);
   }, [fNombre, fTel, fEmail, fTel2, fDireccion, fCodPostal, fProvincia, fTipoInteres, fLeadModeloId]);
 
-  // Load call history when lead changes
+  // Load call history
   useEffect(() => {
     if (!lead) { setCallHistory([]); setFirstCallAt(null); return; }
     setLoadingHistory(true);
     const client = createClient();
     client
       .from('mmc_calls')
-      .select('id, call_at, agent_name, qcode_description, qcode_type, talk_time_s')
+      .select('id, call_at, agent_name, qcode_description, talk_time_s')
       .eq('lead_id', lead.id)
       .order('call_at', { ascending: false })
       .limit(3)
@@ -307,11 +333,8 @@ export default function OperatorWorkspace({
         setCallHistory(data ?? []);
         if (data && data.length > 0) {
           const { data: oldest } = await client
-            .from('mmc_calls')
-            .select('call_at')
-            .eq('lead_id', lead.id)
-            .order('call_at', { ascending: true })
-            .limit(1);
+            .from('mmc_calls').select('call_at')
+            .eq('lead_id', lead.id).order('call_at', { ascending: true }).limit(1);
           setFirstCallAt(oldest?.[0]?.call_at ?? null);
         }
         setLoadingHistory(false);
@@ -322,17 +345,8 @@ export default function OperatorWorkspace({
     e.preventDefault();
     const raw = tel.trim();
     if (!raw) return;
-
-    if (!isValidPhone(raw)) {
-      setInvalidPhone(true);
-      setNotFound(false);
-      return;
-    }
-
-    setInvalidPhone(false);
-    setSearching(true);
-    setNotFound(false);
-    setLead(null);
+    if (!isValidPhone(raw)) { setInvalidPhone(true); setNotFound(false); return; }
+    setInvalidPhone(false); setSearching(true); setNotFound(false); setLead(null);
     const normalized = raw.replace(/\D/g, '').slice(-9);
     const { data } = await supabase
       .from('mmc_leads')
@@ -341,89 +355,51 @@ export default function OperatorWorkspace({
       .order('fecha_entrada', { ascending: false })
       .limit(1);
     setSearching(false);
-    if (data && data.length > 0) {
-      setLead(data[0] as Lead);
-      setStep('lead');
-    } else {
-      setNotFound(true);
-    }
+    if (data && data.length > 0) { setLead(data[0] as Lead); setStep('lead'); }
+    else setNotFound(true);
   }
 
   async function handleSaveFields() {
     if (!lead || !isDirty) return;
     setSaving(true);
-    const updates: Record<string, string | null> = {
-      nombre: fNombre || lead.nombre,
-      telefono: fTel || lead.telefono,
-      email: fEmail || null,
-      telefono2: fTel2 || null,
-      direccion: fDireccion || null,
-      codigo_postal: fCodPostal || null,
-      provincia: fProvincia || 'Málaga',
-      tipo_interes: fTipoInteres || null,
-      modelo_id: fLeadModeloId || null,
-    };
+    const updates = buildDiffUpdates(lead, currentFields());
     const { error } = await supabase.from('mmc_leads').update(updates).eq('id', lead.id);
     setSaving(false);
     if (error) {
       toast.error('Error guardando cambios', { description: error.message });
     } else {
-      // Update local lead state to reflect saved values
-      setLead(prev => prev ? { ...prev, ...updates, nombre: updates.nombre ?? prev.nombre } as Lead : prev);
+      setLead(prev => prev ? { ...prev, ...updates } as Lead : prev);
       setSavedOk(true);
     }
   }
 
   function resetAll() {
-    setStep('search');
-    setTel('');
-    setLead(null);
-    setNotFound(false);
-    setInvalidPhone(false);
-    setCallHistory([]);
-    setFirstCallAt(null);
-    setCitaTipo(null);
-    setCitaModeloId('');
-    setCitaDate(null);
-    setCitaTime('');
-    setCitaComercialId('');
-    setMotivo('');
-    setNotas('');
-    setDoneMsg('');
-    setSavedOk(false);
+    setStep('search'); setTel(''); setLead(null); setNotFound(false);
+    setInvalidPhone(false); setCallHistory([]); setFirstCallAt(null);
+    setCitaTipo(null); setCitaModeloId(''); setCitaDate(null);
+    setCitaTime(''); setCitaComercialId(''); setMotivo(''); setNotas('');
+    setDoneMsg(''); setSavedOk(false);
   }
 
   async function handleConfirm() {
     if (!lead) return;
     startTransition(async () => {
-      // 1. Update lead fields (also saves any unsaved edits)
-      const updates: Record<string, string | null> = {
-        nombre: fNombre || lead.nombre,
-        telefono: fTel || lead.telefono,
-        email: fEmail || null,
-        telefono2: fTel2 || null,
-        direccion: fDireccion || null,
-        codigo_postal: fCodPostal || null,
-        provincia: fProvincia || 'Málaga',
-        tipo_interes: fTipoInteres || null,
-        modelo_id: fLeadModeloId || null,
-      };
-      await supabase.from('mmc_leads').update(updates).eq('id', lead.id);
+      // Save only fields the user explicitly changed (no stale overwrites)
+      const contactUpdates = buildDiffUpdates(lead, currentFields());
+      if (Object.keys(contactUpdates).length > 0) {
+        await supabase.from('mmc_leads').update(contactUpdates).eq('id', lead.id);
+      }
 
-      // 2. Operator report
+      // Operator report
       const callResult = motivo
         ? 'no_interesado'
-        : citaTipo === 'prueba_moto'
-        ? 'cita_prueba_moto'
-        : citaTipo === 'concesionario'
-        ? 'cita_concesionario'
+        : citaTipo === 'prueba_moto' ? 'cita_prueba_moto'
+        : citaTipo === 'concesionario' ? 'cita_concesionario'
         : 'cita_taller';
 
       const reportPayload: Record<string, unknown> = {
-        lead_id: lead.id,
-        operator_id: commercial.id,
-        telefono_buscado: tel,
-        call_result: callResult,
+        lead_id: lead.id, operator_id: commercial.id,
+        telefono_buscado: tel, call_result: callResult,
         observaciones: notas || null,
         ...(motivo ? { no_interest_reason: motivo } : {}),
         ...(citaDate ? { cita_fecha: new Date(`${format(citaDate, 'yyyy-MM-dd')}T${citaTime}:00`).toISOString() } : {}),
@@ -432,14 +408,13 @@ export default function OperatorWorkspace({
       const { error: rErr } = await supabase.from('mmc_operator_reports').insert(reportPayload);
       if (rErr) { toast.error('Error guardando reporte', { description: rErr.message }); return; }
 
-      // 3. If cita → Bookings API
+      // Cita → Bookings API
       if (!motivo && citaTipo && citaDate && citaTime && citaComercialId) {
         const tipo = citaResultToApptType(callResult as any);
         if (tipo) {
           const fechaIso = `${format(citaDate, 'yyyy-MM-dd')}T${citaTime}:00`;
           const res = await fetch('/api/bookings/create', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ lead_id: lead.id, tipo, fecha_iso: fechaIso, commercial_id: citaComercialId, notas: notas || null }),
           });
           if (!res.ok) {
@@ -453,7 +428,6 @@ export default function OperatorWorkspace({
         await supabase.from('mmc_leads').update({ status: 'lost', lost_reason: motivo }).eq('id', lead.id);
       }
 
-      // 4. Done screen
       const isCita = !motivo;
       setDoneIsCita(isCita);
       if (isCita) {
@@ -471,11 +445,10 @@ export default function OperatorWorkspace({
   const citaComercialName = comerciales.find(c => c.id === citaComercialId)?.name ?? '';
   const workingDays = getWorkingDays();
 
-  // ── STEP: search ────────────────────────────────────────────────────────────
+  // ── STEP: search / done ─────────────────────────────────────────────────────
   if (step === 'search' || step === 'done') {
     const hora = new Date().getHours();
     const saludo = hora < 14 ? 'Buenos días' : hora < 20 ? 'Buenas tardes' : 'Buenas noches';
-
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center px-4">
         {step === 'done' && doneMsg && (
@@ -484,12 +457,10 @@ export default function OperatorWorkspace({
             <p className={`font-medium text-base ${doneIsCita ? 'text-green-800' : 'text-blue-800'}`}>{doneMsg}</p>
           </div>
         )}
-
         <div className="w-full max-w-lg text-center mb-8">
           <h1 className="font-display text-3xl font-bold mb-1">{saludo}, {commercial.display_name || commercial.name}</h1>
           <p className="text-muted-foreground">Introduce el teléfono del cliente que tienes en línea</p>
         </div>
-
         <form onSubmit={doSearch} className="w-full max-w-lg space-y-3">
           <div className="relative">
             <Phone className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
@@ -501,17 +472,12 @@ export default function OperatorWorkspace({
               autoFocus
             />
           </div>
-          <Button
-            type="submit"
-            size="lg"
-            disabled={!tel.trim() || searching}
-            className="w-full h-14 bg-ymc-red hover:bg-ymc-redDark text-white text-lg rounded-xl"
-          >
+          <Button type="submit" size="lg" disabled={!tel.trim() || searching}
+            className="w-full h-14 bg-ymc-red hover:bg-ymc-redDark text-white text-lg rounded-xl">
             {searching ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Search className="h-5 w-5 mr-2" />}
             Identificar cliente
           </Button>
         </form>
-
         {invalidPhone && (
           <div className="w-full max-w-lg mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm text-red-800 flex items-center justify-center gap-2">
             <AlertCircle className="h-4 w-4 shrink-0" />
@@ -533,190 +499,172 @@ export default function OperatorWorkspace({
     const totalAttempts = lead.bq_total_attempts ?? callHistory.length;
 
     return (
-      <div className="max-w-2xl mx-auto space-y-6">
+      <div className="max-w-5xl mx-auto">
         <StepBack onClick={resetAll} label="Buscar otro cliente" />
 
-        {/* Lead card */}
-        <div className="rounded-2xl border-2 border-ymc-red/30 bg-white shadow-sm overflow-hidden">
-          {/* Header */}
-          <div className="bg-ymc-red px-6 py-4 flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-2">
-                <User className="h-5 w-5 text-white/80" />
-                <span className="text-white/70 text-sm">Cliente identificado</span>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          {/* ── Lead card (2/3) ── */}
+          <div className="lg:col-span-2 rounded-2xl border-2 border-ymc-red/30 bg-white shadow-sm overflow-hidden">
+            {/* Header */}
+            <div className="bg-ymc-red px-6 py-4 flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <User className="h-5 w-5 text-white/80" />
+                  <span className="text-white/70 text-sm">Cliente identificado</span>
+                </div>
+                <h2 className="font-display text-2xl font-bold text-white mt-0.5">{fNombre || lead.nombre}</h2>
               </div>
-              <h2 className="font-display text-2xl font-bold text-white mt-0.5">{fNombre || lead.nombre}</h2>
+              <Link href={`/leads/${lead.id}`} target="_blank" className="text-white/60 hover:text-white inline-flex items-center gap-1 text-xs">
+                Ficha completa <ExternalLink className="h-3 w-3" />
+              </Link>
             </div>
-            <Link href={`/leads/${lead.id}`} target="_blank" className="text-white/60 hover:text-white inline-flex items-center gap-1 text-xs">
-              Ficha completa <ExternalLink className="h-3 w-3" />
-            </Link>
-          </div>
 
-          {/* Editable fields */}
-          <div className="p-6 space-y-4">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Datos de contacto — editables</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field icon={<User className="h-4 w-4" />} label="Nombre" value={fNombre} onChange={setFNombre} />
-              <Field icon={<Phone className="h-4 w-4" />} label="Teléfono" value={fTel} onChange={setFTel} type="tel" />
-              <Field icon={<Mail className="h-4 w-4" />} label="Email" value={fEmail} onChange={setFEmail} type="email" />
-              <Field icon={<Smartphone className="h-4 w-4" />} label="Teléfono 2 (opcional)" value={fTel2} onChange={setFTel2} type="tel" />
-              <Field icon={<MapPin className="h-4 w-4" />} label="Dirección (opcional)" value={fDireccion} onChange={setFDireccion} className="sm:col-span-2" />
-              <Field icon={<Hash className="h-4 w-4" />} label="Código postal (opcional)" value={fCodPostal} onChange={setFCodPostal} />
-              {/* Provincia */}
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <span className="text-ymc-red"><MapPin className="h-4 w-4 inline" /></span>Provincia
-                </Label>
-                <select
-                  value={fProvincia}
-                  onChange={e => setFProvincia(e.target.value)}
-                  className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:border-ymc-red focus:outline-none"
+            <div className="p-6 space-y-4">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Datos de contacto — editables</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field icon={<User className="h-4 w-4" />} label="Nombre" value={fNombre} onChange={setFNombre} />
+                <Field icon={<Phone className="h-4 w-4" />} label="Teléfono" value={fTel} onChange={setFTel} type="tel" />
+                <Field icon={<Mail className="h-4 w-4" />} label="Email" value={fEmail} onChange={setFEmail} type="email" />
+                <Field icon={<Smartphone className="h-4 w-4" />} label="Teléfono 2 (opcional)" value={fTel2} onChange={setFTel2} type="tel" />
+                <Field icon={<MapPin className="h-4 w-4" />} label="Dirección (opcional)" value={fDireccion} onChange={setFDireccion} className="sm:col-span-2" />
+                <Field icon={<Hash className="h-4 w-4" />} label="Código postal (opcional)" value={fCodPostal} onChange={setFCodPostal} />
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <span className="text-ymc-red"><MapPin className="h-4 w-4 inline" /></span>Provincia
+                  </Label>
+                  <select value={fProvincia} onChange={e => setFProvincia(e.target.value)}
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:border-ymc-red focus:outline-none">
+                    {PROVINCIAS.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Interés del cliente */}
+              <div className="rounded-xl bg-slate-50 p-4 space-y-3">
+                <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Interés del cliente</p>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Tipo de interés</Label>
+                  <select value={fTipoInteres} onChange={e => setFTipoInteres(e.target.value)}
+                    className="w-full h-9 rounded-md border border-input bg-white px-3 py-1 text-sm shadow-sm focus:border-ymc-red focus:outline-none">
+                    {TIPO_INTERES_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Bike className="h-3 w-3 text-ymc-red" />Modelo de interés
+                    {lead.modelo_raw && !lead.modelo_id && (
+                      <span className="ml-1 text-muted-foreground">(sheet: "{lead.modelo_raw}")</span>
+                    )}
+                  </Label>
+                  <ModelCombobox models={models} value={fLeadModeloId}
+                    onChange={(id, name) => { setFLeadModeloId(id); setFLeadModeloName(name); }} />
+                </div>
+                {lead.seleccionar_peticion && (
+                  <div className="text-sm text-muted-foreground">Petición: {lead.seleccionar_peticion}</div>
+                )}
+                {lead.mensajes_preferencias && (
+                  <div className="text-sm text-muted-foreground italic">"{lead.mensajes_preferencias}"</div>
+                )}
+              </div>
+
+              {/* Guardar cambios — Yamaha-style pill button */}
+              <div className="space-y-2">
+                <button
+                  onClick={handleSaveFields}
+                  disabled={!isDirty || saving}
+                  className="group w-full flex items-center justify-between gap-4 rounded-full px-7 py-4 font-bold uppercase tracking-widest text-sm transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed bg-black text-white hover:bg-ymc-red"
                 >
-                  {PROVINCIAS.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
+                  <span>{saving ? 'Guardando...' : 'Guardar cambios'}</span>
+                  {saving
+                    ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                    : <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-1" />}
+                </button>
+                {savedOk && (
+                  <p className="text-center text-sm text-green-700 font-medium flex items-center justify-center gap-1.5">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Sus cambios se han guardado correctamente.
+                  </p>
+                )}
               </div>
-            </div>
 
-            {/* Interés del cliente */}
-            <div className="rounded-xl bg-slate-50 p-4 space-y-3">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Interés del cliente</p>
-              {/* Tipo de interés — dropdown */}
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Tipo de interés</Label>
-                <select
-                  value={fTipoInteres}
-                  onChange={e => setFTipoInteres(e.target.value)}
-                  className="w-full h-9 rounded-md border border-input bg-white px-3 py-1 text-sm shadow-sm focus:border-ymc-red focus:outline-none"
-                >
-                  {TIPO_INTERES_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-                </select>
-              </div>
-              {/* Modelo — combobox predictivo, orden alfabético */}
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <Bike className="h-3 w-3 text-ymc-red" />
-                  Modelo de interés
-                  {lead.modelo_raw && !lead.modelo_id && (
-                    <span className="text-xs text-muted-foreground ml-1">(sheet: "{lead.modelo_raw}")</span>
-                  )}
-                </Label>
-                <ModelCombobox
-                  models={models}
-                  value={fLeadModeloId}
-                  onChange={(id, name) => { setFLeadModeloId(id); setFLeadModeloName(name); }}
-                />
-              </div>
-              {lead.seleccionar_peticion && (
-                <div className="text-sm text-muted-foreground">Petición: {lead.seleccionar_peticion}</div>
-              )}
-              {lead.mensajes_preferencias && (
-                <div className="text-sm text-muted-foreground italic">"{lead.mensajes_preferencias}"</div>
-              )}
-            </div>
-
-            {/* Guardar cambios */}
-            <div className="space-y-2">
-              <Button
-                type="button"
-                onClick={handleSaveFields}
-                disabled={!isDirty || saving}
-                variant="outline"
-                size="sm"
-                className={`w-full border-2 transition-all ${isDirty ? 'border-ymc-red text-ymc-red hover:bg-ymc-redLight' : 'border-slate-200 text-muted-foreground cursor-not-allowed'}`}
-              >
-                {saving
-                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Guardando...</>
-                  : <><Save className="h-4 w-4 mr-2" />Guardar cambios</>
-                }
-              </Button>
-              {savedOk && (
-                <p className="text-center text-sm text-green-700 font-medium flex items-center justify-center gap-1.5">
-                  <CheckCircle2 className="h-4 w-4" />
-                  Sus cambios se han guardado correctamente.
-                </p>
-              )}
-            </div>
-
-            {/* Historial */}
-            <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-2">Historial de llamadas</p>
-              {loadingHistory ? (
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex gap-4 text-xs text-muted-foreground">
-                    <span>
-                      <strong className="text-foreground">Entrada lead:</strong>{' '}
-                      {formatFechaEntrada(lead.fecha_entrada)}
-                    </span>
-                    {firstCallAt && (
-                      <span>
-                        <strong className="text-foreground">1ª llamada:</strong>{' '}
-                        {format(new Date(firstCallAt), "d MMM yyyy", { locale: es })}
-                      </span>
+              {/* Historial */}
+              <div className="rounded-xl bg-slate-50 p-4">
+                <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-2">Historial de llamadas</p>
+                {loadingHistory ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+                      <span><strong className="text-foreground">Entrada lead:</strong> {formatFechaEntrada(lead.fecha_entrada)}</span>
+                      {firstCallAt && (
+                        <span><strong className="text-foreground">1ª llamada:</strong> {format(new Date(firstCallAt), "d MMM yyyy", { locale: es })}</span>
+                      )}
+                    </div>
+                    {callHistory.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Primera vez que se le llama.</p>
+                    ) : (
+                      <>
+                        <div className="text-sm">
+                          <strong>{totalAttempts}</strong>
+                          <span className="text-muted-foreground"> {totalAttempts === 1 ? 'intento' : 'intentos'} en total</span>
+                          {lead.bq_last_call_at && (
+                            <span className="text-muted-foreground">
+                              {' · '}Último: {format(new Date(lead.bq_last_call_at), "d MMM 'a las' HH:mm", { locale: es })}
+                              {lead.bq_last_agent && ` con ${lead.bq_last_agent}`}
+                            </span>
+                          )}
+                        </div>
+                        {prevQcode && (
+                          <div className="text-xs px-2 py-1 rounded-md bg-white border inline-block">
+                            Último resultado: <strong>{prevQcode}</strong>
+                          </div>
+                        )}
+                        {callHistory.map(c => (
+                          <div key={c.id} className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span>{format(new Date(c.call_at), "d MMM · HH:mm", { locale: es })} — {c.agent_name || '—'}</span>
+                            {c.talk_time_s > 0
+                              ? <span className="text-green-700 font-medium">{Math.round(c.talk_time_s / 60)}min</span>
+                              : <span className="text-slate-400">Sin respuesta</span>}
+                          </div>
+                        ))}
+                      </>
                     )}
                   </div>
-                  {callHistory.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Primera vez que se le llama.</p>
-                  ) : (
-                    <>
-                      <div className="text-sm">
-                        <strong>{totalAttempts}</strong>
-                        <span className="text-muted-foreground"> {totalAttempts === 1 ? 'intento' : 'intentos'} en total</span>
-                        {lead.bq_last_call_at && (
-                          <span className="text-muted-foreground">
-                            {' · '}Último:{' '}
-                            {format(new Date(lead.bq_last_call_at), "d MMM 'a las' HH:mm", { locale: es })}
-                            {lead.bq_last_agent && ` con ${lead.bq_last_agent}`}
-                          </span>
-                        )}
-                      </div>
-                      {prevQcode && (
-                        <div className="text-xs px-2 py-1 rounded-md bg-white border inline-block">
-                          Último resultado: <strong>{prevQcode}</strong>
-                        </div>
-                      )}
-                      {callHistory.map(c => (
-                        <div key={c.id} className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>{format(new Date(c.call_at), "d MMM · HH:mm", { locale: es })} — {c.agent_name || '—'}</span>
-                          {c.talk_time_s > 0
-                            ? <span className="text-green-700 font-medium">{Math.round(c.talk_time_s / 60)}min</span>
-                            : <span className="text-slate-400">Sin respuesta</span>}
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Action column (1/3) — Yamaha style ── */}
+          <div className="lg:col-span-1 space-y-4 lg:pt-0">
+            <div className="rounded-2xl border-2 border-slate-100 bg-white p-6 space-y-5">
+              <div>
+                <p className="text-xs uppercase tracking-widest text-muted-foreground font-semibold mb-1">Resultado de la llamada</p>
+                <p className="text-sm text-muted-foreground">¿Cómo ha ido la gestión con este cliente?</p>
+              </div>
+
+              {/* Quiere cita */}
+              <YamahaButton onClick={() => setStep('cita')}>
+                Quiere cita
+              </YamahaButton>
+
+              {/* No interesado */}
+              <YamahaButton onClick={() => setStep('no_interesado')} variant="secondary">
+                No interesado
+              </YamahaButton>
+            </div>
+
+            {/* Lead entry date summary pill */}
+            <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-xs text-muted-foreground space-y-1">
+              <div><span className="font-medium text-foreground">Lead:</span> {formatFechaEntrada(lead.fecha_entrada)}</div>
+              {lead.status && (
+                <div><span className="font-medium text-foreground">Estado:</span> {lead.status}</div>
+              )}
+              {lead.formulario && (
+                <div className="truncate"><span className="font-medium text-foreground">Formulario:</span> {lead.formulario}</div>
               )}
             </div>
           </div>
-        </div>
-
-        {/* Action buttons */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <button
-            onClick={() => setStep('cita')}
-            className="group flex flex-col items-center gap-3 rounded-2xl border-2 border-green-200 bg-green-50 hover:bg-green-100 hover:border-green-400 p-6 transition-all"
-          >
-            <span className="text-4xl">🗓️</span>
-            <div className="text-center">
-              <div className="font-display font-bold text-lg text-green-800">Quiere cita</div>
-              <div className="text-sm text-green-700 mt-0.5">Programar una visita al concesionario</div>
-            </div>
-            <ChevronRight className="h-5 w-5 text-green-600 group-hover:translate-x-1 transition-transform" />
-          </button>
-
-          <button
-            onClick={() => setStep('no_interesado')}
-            className="group flex flex-col items-center gap-3 rounded-2xl border-2 border-amber-200 bg-amber-50 hover:bg-amber-100 hover:border-amber-400 p-6 transition-all"
-          >
-            <span className="text-4xl">❌</span>
-            <div className="text-center">
-              <div className="font-display font-bold text-lg text-amber-800">No interesado</div>
-              <div className="text-sm text-amber-700 mt-0.5">Registrar motivo de rechazo</div>
-            </div>
-            <ChevronRight className="h-5 w-5 text-amber-600 group-hover:translate-x-1 transition-transform" />
-          </button>
         </div>
       </div>
     );
@@ -725,24 +673,16 @@ export default function OperatorWorkspace({
   // ── STEP: cita ──────────────────────────────────────────────────────────────
   if (step === 'cita') {
     const canContinue = !!citaTipo && !!citaDate && !!citaTime && !!citaComercialId;
-
     return (
       <div className="max-w-2xl mx-auto space-y-8">
         <StepBack onClick={() => setStep('lead')} />
-
         <div>
           <SectionTitle>¿Qué tipo de cita?</SectionTitle>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {CITA_TIPOS.map(t => (
-              <button
-                key={t.value}
+              <button key={t.value}
                 onClick={() => { setCitaTipo(t.value); if (t.value !== 'prueba_moto') setCitaModeloId(''); }}
-                className={`flex flex-col items-center gap-2 rounded-xl border-2 p-5 transition-all ${
-                  citaTipo === t.value
-                    ? 'border-ymc-red bg-ymc-redLight shadow-sm'
-                    : 'border-slate-200 bg-white hover:border-ymc-red/40'
-                }`}
-              >
+                className={`flex flex-col items-center gap-2 rounded-xl border-2 p-5 transition-all ${citaTipo === t.value ? 'border-ymc-red bg-ymc-redLight shadow-sm' : 'border-slate-200 bg-white hover:border-ymc-red/40'}`}>
                 <span className="text-3xl">{t.emoji}</span>
                 <span className={`font-semibold text-sm text-center ${citaTipo === t.value ? 'text-ymc-red' : ''}`}>{t.label}</span>
                 <span className="text-xs text-muted-foreground text-center leading-tight">{t.desc}</span>
@@ -754,11 +694,8 @@ export default function OperatorWorkspace({
         {citaTipo === 'prueba_moto' && (
           <div>
             <SectionTitle>¿Qué modelo quiere probar?</SectionTitle>
-            <select
-              value={citaModeloId}
-              onChange={e => setCitaModeloId(e.target.value)}
-              className="w-full border-2 rounded-xl px-4 py-3 text-base bg-white focus:border-ymc-red focus:outline-none"
-            >
+            <select value={citaModeloId} onChange={e => setCitaModeloId(e.target.value)}
+              className="w-full border-2 rounded-xl px-4 py-3 text-base bg-white focus:border-ymc-red focus:outline-none">
               <option value="">— Selecciona un modelo —</option>
               {[...models].sort((a, b) => a.name.localeCompare(b.name, 'es')).map(m => (
                 <option key={m.id} value={m.id}>{m.name}</option>
@@ -775,20 +712,11 @@ export default function OperatorWorkspace({
                 const iso = format(d, 'yyyy-MM-dd');
                 const sel = citaDate && format(citaDate, 'yyyy-MM-dd') === iso;
                 return (
-                  <button
-                    key={iso}
-                    onClick={() => setCitaDate(d)}
-                    className={`shrink-0 flex flex-col items-center rounded-xl border-2 px-3 py-2 min-w-[60px] transition-all ${
-                      sel ? 'border-ymc-red bg-ymc-red text-white' : 'border-slate-200 bg-white hover:border-ymc-red/50'
-                    }`}
-                  >
-                    <span className={`text-xs font-medium ${sel ? 'text-white/80' : 'text-muted-foreground'}`}>
-                      {format(d, 'EEE', { locale: es }).slice(0, 3)}
-                    </span>
+                  <button key={iso} onClick={() => setCitaDate(d)}
+                    className={`shrink-0 flex flex-col items-center rounded-xl border-2 px-3 py-2 min-w-[60px] transition-all ${sel ? 'border-ymc-red bg-ymc-red text-white' : 'border-slate-200 bg-white hover:border-ymc-red/50'}`}>
+                    <span className={`text-xs font-medium ${sel ? 'text-white/80' : 'text-muted-foreground'}`}>{format(d, 'EEE', { locale: es }).slice(0, 3)}</span>
                     <span className="font-bold text-base">{format(d, 'd')}</span>
-                    <span className={`text-[10px] ${sel ? 'text-white/70' : 'text-muted-foreground'}`}>
-                      {format(d, 'MMM', { locale: es })}
-                    </span>
+                    <span className={`text-[10px] ${sel ? 'text-white/70' : 'text-muted-foreground'}`}>{format(d, 'MMM', { locale: es })}</span>
                   </button>
                 );
               })}
@@ -800,26 +728,17 @@ export default function OperatorWorkspace({
           <div>
             <SectionTitle>¿A qué hora?</SectionTitle>
             <div className="space-y-3">
-              <div>
-                <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Mañana</p>
-                <div className="flex flex-wrap gap-2">
-                  {MORNING.map(t => (
-                    <button key={t} onClick={() => setCitaTime(t)}
-                      className={`rounded-lg border-2 px-4 py-2 text-sm font-mono font-medium transition-all ${citaTime === t ? 'border-ymc-red bg-ymc-red text-white' : 'border-slate-200 bg-white hover:border-ymc-red/50'}`}
-                    >{t}</button>
-                  ))}
+              {[{ label: 'Mañana', slots: MORNING }, { label: 'Tarde', slots: AFTERNOON }].map(({ label, slots }) => (
+                <div key={label}>
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">{label}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {slots.map(t => (
+                      <button key={t} onClick={() => setCitaTime(t)}
+                        className={`rounded-lg border-2 px-4 py-2 text-sm font-mono font-medium transition-all ${citaTime === t ? 'border-ymc-red bg-ymc-red text-white' : 'border-slate-200 bg-white hover:border-ymc-red/50'}`}>{t}</button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Tarde</p>
-                <div className="flex flex-wrap gap-2">
-                  {AFTERNOON.map(t => (
-                    <button key={t} onClick={() => setCitaTime(t)}
-                      className={`rounded-lg border-2 px-4 py-2 text-sm font-mono font-medium transition-all ${citaTime === t ? 'border-ymc-red bg-ymc-red text-white' : 'border-slate-200 bg-white hover:border-ymc-red/50'}`}
-                    >{t}</button>
-                  ))}
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         )}
@@ -829,11 +748,8 @@ export default function OperatorWorkspace({
             <SectionTitle>¿Con qué comercial?</SectionTitle>
             <div className="flex flex-wrap gap-3">
               {comerciales.map(c => (
-                <button
-                  key={c.id}
-                  onClick={() => setCitaComercialId(c.id)}
-                  className={`rounded-xl border-2 px-5 py-3 transition-all ${citaComercialId === c.id ? 'border-ymc-red bg-ymc-red text-white font-semibold' : 'border-slate-200 bg-white hover:border-ymc-red/50'}`}
-                >
+                <button key={c.id} onClick={() => setCitaComercialId(c.id)}
+                  className={`rounded-xl border-2 px-5 py-3 transition-all ${citaComercialId === c.id ? 'border-ymc-red bg-ymc-red text-white font-semibold' : 'border-slate-200 bg-white hover:border-ymc-red/50'}`}>
                   {c.name} {c.role === 'gerente' && <span className="text-xs opacity-70">(gerente)</span>}
                 </button>
               ))}
@@ -841,12 +757,8 @@ export default function OperatorWorkspace({
           </div>
         )}
 
-        <Button
-          onClick={() => setStep('confirm')}
-          disabled={!canContinue}
-          size="lg"
-          className="w-full h-14 bg-ymc-red hover:bg-ymc-redDark text-white text-base rounded-xl"
-        >
+        <Button onClick={() => setStep('confirm')} disabled={!canContinue} size="lg"
+          className="w-full h-14 bg-ymc-red hover:bg-ymc-redDark text-white text-base rounded-xl">
           Revisar y confirmar <ChevronRight className="h-5 w-5 ml-1" />
         </Button>
       </div>
@@ -859,43 +771,23 @@ export default function OperatorWorkspace({
       <div className="max-w-xl mx-auto space-y-6">
         <StepBack onClick={() => setStep('lead')} />
         <SectionTitle>¿Por qué motivo no está interesado?</SectionTitle>
-
         <div className="space-y-2">
           {NO_INT_REASONS.map(r => (
-            <button
-              key={r.value}
-              onClick={() => setMotivo(r.value as NoInterestReason)}
-              className={`w-full flex items-center gap-4 rounded-xl border-2 px-5 py-4 text-left transition-all ${
-                motivo === r.value
-                  ? 'border-amber-500 bg-amber-50 font-semibold'
-                  : 'border-slate-200 bg-white hover:border-amber-300'
-              }`}
-            >
+            <button key={r.value} onClick={() => setMotivo(r.value as NoInterestReason)}
+              className={`w-full flex items-center gap-4 rounded-xl border-2 px-5 py-4 text-left transition-all ${motivo === r.value ? 'border-amber-500 bg-amber-50 font-semibold' : 'border-slate-200 bg-white hover:border-amber-300'}`}>
               <span className="text-2xl">{r.emoji}</span>
               <span className="text-base">{r.label}</span>
               {motivo === r.value && <CheckCircle2 className="h-5 w-5 text-amber-600 ml-auto" />}
             </button>
           ))}
         </div>
-
         <div className="space-y-1.5">
           <Label htmlFor="notas" className="text-sm font-medium text-muted-foreground">Observaciones (opcional)</Label>
-          <Textarea
-            id="notas"
-            value={notas}
-            onChange={e => setNotas(e.target.value)}
-            placeholder="Añade cualquier detalle relevante de la conversación..."
-            rows={3}
-            className="rounded-xl"
-          />
+          <Textarea id="notas" value={notas} onChange={e => setNotas(e.target.value)}
+            placeholder="Añade cualquier detalle relevante de la conversación..." rows={3} className="rounded-xl" />
         </div>
-
-        <Button
-          onClick={() => setStep('confirm')}
-          disabled={!motivo}
-          size="lg"
-          className="w-full h-14 bg-amber-500 hover:bg-amber-600 text-white text-base rounded-xl"
-        >
+        <Button onClick={() => setStep('confirm')} disabled={!motivo} size="lg"
+          className="w-full h-14 bg-amber-500 hover:bg-amber-600 text-white text-base rounded-xl">
           Revisar y confirmar <ChevronRight className="h-5 w-5 ml-1" />
         </Button>
       </div>
@@ -906,17 +798,14 @@ export default function OperatorWorkspace({
   if (step === 'confirm' && lead) {
     const isCita = !motivo;
     const reasonLabel = NO_INT_REASONS.find(r => r.value === motivo)?.label ?? motivo;
-
     return (
       <div className="max-w-xl mx-auto space-y-4">
         <StepBack onClick={() => setStep(isCita ? 'cita' : 'no_interesado')} />
-
         <div className="rounded-2xl border-2 border-slate-200 overflow-hidden">
           <div className="bg-slate-800 px-6 py-4">
             <h2 className="font-display text-xl font-bold text-white">Resumen de la gestión</h2>
             <p className="text-slate-400 text-sm mt-0.5">Revisa los datos antes de confirmar</p>
           </div>
-
           <ConfirmSection title="Datos del cliente" onEdit={() => setStep('lead')}>
             <ConfirmRow icon="👤" label="Nombre" value={fNombre || lead.nombre} />
             <ConfirmRow icon="📞" label="Teléfono" value={fTel || lead.telefono || '—'} />
@@ -928,18 +817,12 @@ export default function OperatorWorkspace({
             {fTipoInteres && <ConfirmRow icon="💡" label="Interés" value={fTipoInteres} />}
             {fLeadModeloName && <ConfirmRow icon="🏍️" label="Modelo de interés" value={fLeadModeloName} />}
           </ConfirmSection>
-
-          <ConfirmSection
-            title={isCita ? 'Cita programada' : 'Motivo de no interés'}
-            onEdit={() => setStep(isCita ? 'cita' : 'no_interesado')}
-            accent={isCita ? 'green' : 'amber'}
-          >
+          <ConfirmSection title={isCita ? 'Cita programada' : 'Motivo de no interés'}
+            onEdit={() => setStep(isCita ? 'cita' : 'no_interesado')} accent={isCita ? 'green' : 'amber'}>
             {isCita ? (
               <>
                 <ConfirmRow icon="📋" label="Tipo" value={CITA_TIPOS.find(t => t.value === citaTipo)?.label ?? ''} />
-                {citaTipo === 'prueba_moto' && citaModeloName && (
-                  <ConfirmRow icon="🏍️" label="Modelo a probar" value={citaModeloName} />
-                )}
+                {citaTipo === 'prueba_moto' && citaModeloName && <ConfirmRow icon="🏍️" label="Modelo a probar" value={citaModeloName} />}
                 <ConfirmRow icon="📅" label="Fecha" value={citaDate ? format(citaDate, "EEEE d 'de' MMMM", { locale: es }) : ''} />
                 <ConfirmRow icon="🕐" label="Hora" value={citaTime} />
                 <ConfirmRow icon="👤" label="Comercial" value={citaComercialName} />
@@ -951,20 +834,10 @@ export default function OperatorWorkspace({
               </>
             )}
           </ConfirmSection>
-
-          {notas && isCita && (
-            <div className="px-6 pb-4">
-              <p className="text-xs text-muted-foreground">Notas: {notas}</p>
-            </div>
-          )}
+          {notas && isCita && <div className="px-6 pb-4"><p className="text-xs text-muted-foreground">Notas: {notas}</p></div>}
         </div>
-
-        <Button
-          onClick={handleConfirm}
-          disabled={pending}
-          size="lg"
-          className={`w-full h-16 text-white text-base font-bold rounded-xl ${isCita ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-500 hover:bg-amber-600'}`}
-        >
+        <Button onClick={handleConfirm} disabled={pending} size="lg"
+          className={`w-full h-16 text-white text-base font-bold rounded-xl ${isCita ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-500 hover:bg-amber-600'}`}>
           {pending ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <CheckCircle2 className="h-5 w-5 mr-2" />}
           Confirmar datos y finalizar
         </Button>
@@ -977,9 +850,7 @@ export default function OperatorWorkspace({
 
 // ─── Helper sub-components ────────────────────────────────────────────────────
 
-function Field({
-  icon, label, value, onChange, type = 'text', className = '',
-}: {
+function Field({ icon, label, value, onChange, type = 'text', className = '' }: {
   icon: React.ReactNode; label: string; value: string;
   onChange: (v: string) => void; type?: string; className?: string;
 }) {
@@ -988,19 +859,12 @@ function Field({
       <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
         <span className="text-ymc-red">{icon}</span>{label}
       </Label>
-      <Input
-        type={type}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="h-9 text-sm"
-      />
+      <Input type={type} value={value} onChange={e => onChange(e.target.value)} className="h-9 text-sm" />
     </div>
   );
 }
 
-function ConfirmSection({
-  title, children, onEdit, accent,
-}: {
+function ConfirmSection({ title, children, onEdit, accent }: {
   title: string; children: React.ReactNode; onEdit: () => void; accent?: 'green' | 'amber';
 }) {
   const bg = accent === 'green' ? 'bg-green-50' : accent === 'amber' ? 'bg-amber-50' : 'bg-slate-50';
