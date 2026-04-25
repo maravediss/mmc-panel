@@ -224,7 +224,7 @@ export default function LeadsPageClient() {
           icon={<Clock className="h-4 w-4" />}
           label="Tiempo medio 1er contacto"
           value={fmtMinutes(kpis?.tiempoMedioMin ?? null)}
-          sub="hasta coger el teléfono"
+          sub="hasta 1ª llamada del call center"
         />
       </div>
 
