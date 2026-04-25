@@ -403,9 +403,9 @@ export default function DashboardClient() {
                       {stats.recentSales.map((s: any) => (
                         <tr key={s.id} className="border-t">
                           <td className="py-2">{format(new Date(s.fecha_compra), "d MMM yyyy", { locale: es })}</td>
-                          <td>{s.lead?.nombre ?? '—'}</td>
-                          <td>{s.model_raw ?? '—'}</td>
-                          <td>{s.commercial?.name ?? '—'}</td>
+                          <td>{s.lead_nombre ?? '—'}</td>
+                          <td>{s.model_name ?? s.model_raw ?? '—'}</td>
+                          <td>{s.commercial_name ?? '—'}</td>
                           <td className="text-right font-medium">
                             {s.margen_eur ? `${Number(s.margen_eur).toLocaleString('es-ES', { maximumFractionDigits: 0 })} €` : '—'}
                           </td>

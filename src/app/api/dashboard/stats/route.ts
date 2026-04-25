@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
       { count: apptsNoShow },
       { count: salesCount },
       { data: salesMargen },
-      { data: recentSales },
+      { data: recentSalesRaw },
       allOrigins,
       allStatus,
       allModels,
@@ -79,24 +79,34 @@ export async function GET(req: NextRequest) {
       fAppt(admin.from('mmc_appointments').select('*', { count: 'exact', head: true }).eq('status', 'no_show')),
       fSale(admin.from('mmc_sales').select('*', { count: 'exact', head: true })),
       fSale(admin.from('mmc_sales').select('margen_eur').limit(5000)),
+      // recentSales sin FK joins — se enriquecen tras el Promise.all
       fSale(
         admin.from('mmc_sales')
-          .select('id, model_raw, fecha_compra, margen_eur, commercial:mmc_commercials(name), lead:mmc_leads(nombre)')
+          .select('id, model_raw, model_id, fecha_compra, margen_eur, commercial_id, lead_id')
           .order('fecha_compra', { ascending: false })
           .limit(8)
       ),
       // Distribuciones — paginadas para no truncarse
       fetchAll((s, e) => fLead(admin.from('mmc_leads').select('origen')).range(s, e)),
       fetchAll((s, e) => fLead(admin.from('mmc_leads').select('status')).range(s, e)),
-      fetchAll((s, e) => fSale(admin.from('mmc_sales').select('model_raw, model:mmc_models(name)')).range(s, e)),
-      fetchAll((s, e) => fSale(admin.from('mmc_sales').select('commercial_id, margen_eur, commercial:mmc_commercials(name)')).range(s, e)),
+      // model_id + model_raw sin FK join (evita problema de schema cache en PostgREST)
+      fetchAll((s, e) => fSale(admin.from('mmc_sales').select('model_raw, model_id')).range(s, e)),
+      fetchAll((s, e) => fSale(admin.from('mmc_sales').select('commercial_id, margen_eur')).range(s, e)),
       fetchAll((s, e) => fCall(admin.from('mmc_calls').select('qcode_type, qcode_description')).range(s, e)),
       fetchAll((s, e) => fCall(admin.from('mmc_calls').select('agent_name, talk_time_s')).range(s, e)),
     ]);
 
+    // Lookup de modelos y comerciales (sin FK join)
+    const [{ data: modelsLookup }, { data: commercialsLookup }] = await Promise.all([
+      admin.from('mmc_models').select('id, name').limit(200),
+      admin.from('mmc_commercials').select('id, name').limit(50),
+    ]);
+    const modelById    = new Map((modelsLookup     ?? []).map((m: any) => [m.id, m.name]));
+    const commercialById = new Map((commercialsLookup ?? []).map((c: any) => [c.id, c.name]));
+
     const origenDist = countBy(allOrigins, 'origen');
     const statusDist = countBy(allStatus, 'status');
-    const modelsDist = countByFlex(allModels, (r: any) => r.model?.name ?? r.model_raw ?? 'Sin especificar');
+    const modelsDist = countByFlex(allModels, (r: any) => modelById.get(r.model_id) ?? r.model_raw ?? 'Sin especificar');
     const qcodeDist  = countByFlex(allQcodes, (r: any) => r.qcode_description ?? r.qcode_type ?? 'Otro');
     const margenTotal = (salesMargen ?? []).reduce((s: number, r: any) => s + (Number(r.margen_eur) || 0), 0);
 
@@ -114,10 +124,10 @@ export async function GET(req: NextRequest) {
       .filter(a => a.count >= 3)
       .sort((a, b) => b.count - a.count);
 
-    // Agrupar comerciales
+    // Agrupar comerciales (usando lookup en vez de FK join)
     const commMap = new Map<string, { count: number; margen: number }>();
     for (const r of allCommSales as any[]) {
-      const name = r.commercial?.name || '—';
+      const name = commercialById.get(r.commercial_id) || '—';
       const cur  = commMap.get(name) ?? { count: 0, margen: 0 };
       cur.count++;
       cur.margen += Number(r.margen_eur) || 0;
@@ -126,6 +136,21 @@ export async function GET(req: NextRequest) {
     const commercialStats = Array.from(commMap.entries())
       .map(([name, v]) => ({ name, ...v }))
       .sort((a, b) => b.count - a.count);
+
+    // Enriquecer ventas recientes con nombres via lookup
+    // Necesitamos lead_id → nombre — query puntual para los ≤8 leads
+    const recentLeadIds = (recentSalesRaw ?? []).map((s: any) => s.lead_id).filter(Boolean);
+    let leadNames: Map<string, string> = new Map();
+    if (recentLeadIds.length > 0) {
+      const { data: leadsData } = await admin.from('mmc_leads').select('id, nombre').in('id', recentLeadIds);
+      leadNames = new Map((leadsData ?? []).map((l: any) => [l.id, l.nombre]));
+    }
+    const recentSales = (recentSalesRaw ?? []).map((s: any) => ({
+      ...s,
+      model_name:      modelById.get(s.model_id) ?? s.model_raw ?? null,
+      commercial_name: commercialById.get(s.commercial_id) ?? null,
+      lead_nombre:     leadNames.get(s.lead_id) ?? null,
+    }));
 
     const apptsTotalN    = apptsTotal    ?? 0;
     const apptsAttendedN = apptsAttended ?? 0;
@@ -145,7 +170,7 @@ export async function GET(req: NextRequest) {
       distributions: { origen: origenDist, status: statusDist, models: modelsDist, qcodes: qcodeDist },
       agentStats,
       commercialStats,
-      recentSales: recentSales ?? [],
+      recentSales,
     });
   } catch (err: any) {
     console.error('[dashboard/stats]', err);
