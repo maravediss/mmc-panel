@@ -9,15 +9,15 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { searchParams } = req.nextUrl;
-  const date  = searchParams.get('date');   // YYYY-MM-DD  (null = all)
+  const dateFrom = searchParams.get('date_from');  // YYYY-MM-DD  (null = no lower bound)
+  const dateTo   = searchParams.get('date_to');    // YYYY-MM-DD  (null = no upper bound)
   const q     = searchParams.get('q')?.trim() ?? '';
   const page  = Math.max(1, parseInt(searchParams.get('page') ?? '1'));
   const LIMIT = 50;
   const offset = (page - 1) * LIMIT;
 
-  // Convert single date → timestamptz range
-  const from = date ? `${date}T00:00:00` : undefined;
-  const to   = date ? `${date}T23:59:59` : undefined;
+  const from = dateFrom ? `${dateFrom}T00:00:00` : undefined;
+  const to   = dateTo   ? `${dateTo}T23:59:59`   : undefined;
 
   const admin = createAdminClient();
 

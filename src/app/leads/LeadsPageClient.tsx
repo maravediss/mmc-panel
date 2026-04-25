@@ -99,7 +99,8 @@ function StatusCell({ status, proximaCita }: { status: string; proximaCita: stri
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function LeadsPageClient() {
-  const [date, setDate]               = useState(todayISO());
+  const [dateFrom, setDateFrom]       = useState(todayISO());
+  const [dateTo,   setDateTo]         = useState(todayISO());
   const [search, setSearch]           = useState('');
   const [debouncedSearch, setDebounced] = useState('');
   const [page, setPage]               = useState(1);
@@ -108,6 +109,16 @@ export default function LeadsPageClient() {
   const [refreshKey, setRefreshKey]   = useState(0);
   const [rotating, setRotating]       = useState(false);
   const firstLoad                     = useRef(true);
+
+  // Keep dateTo >= dateFrom
+  function handleDateFrom(val: string) {
+    setDateFrom(val);
+    if (dateTo < val) setDateTo(val);
+  }
+  function handleDateTo(val: string) {
+    setDateTo(val);
+    if (dateFrom > val) setDateFrom(val);
+  }
 
   // Debounce search 350ms
   useEffect(() => {
@@ -118,13 +129,13 @@ export default function LeadsPageClient() {
   // Reset page when filters change
   useEffect(() => {
     if (!firstLoad.current) setPage(1);
-  }, [date, debouncedSearch]);
+  }, [dateFrom, dateTo, debouncedSearch]);
 
   // Fetch data
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ date, page: String(page) });
+      const params = new URLSearchParams({ date_from: dateFrom, date_to: dateTo, page: String(page) });
       if (debouncedSearch) params.set('q', debouncedSearch);
       const res = await fetch(`/api/leads?${params}`);
       if (res.ok) setData(await res.json());
@@ -132,7 +143,7 @@ export default function LeadsPageClient() {
       setLoading(false);
       firstLoad.current = false;
     }
-  }, [date, page, debouncedSearch, refreshKey]); // eslint-disable-line
+  }, [dateFrom, dateTo, page, debouncedSearch, refreshKey]); // eslint-disable-line
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -158,13 +169,23 @@ export default function LeadsPageClient() {
           <h1 className="font-display text-2xl font-bold">Leads</h1>
           <p className="text-sm text-muted-foreground">Base de datos de leads capturados · actualización automática cada 5 min</p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <input
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus:border-ymc-red focus:outline-none"
-          />
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={e => handleDateFrom(e.target.value)}
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus:border-ymc-red focus:outline-none"
+            />
+            <span className="text-xs text-muted-foreground">—</span>
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom}
+              onChange={e => handleDateTo(e.target.value)}
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus:border-ymc-red focus:outline-none"
+            />
+          </div>
           <button
             onClick={manualRefresh}
             title="Actualizar ahora"
@@ -181,7 +202,11 @@ export default function LeadsPageClient() {
           icon={<Users className="h-4 w-4" />}
           label="Leads entrantes"
           value={kpis?.entrantes ?? '—'}
-          sub={date === todayISO() ? 'hoy' : format(new Date(date + 'T12:00:00'), "d MMM yyyy", { locale: es })}
+          sub={
+            dateFrom === dateTo
+              ? (dateFrom === todayISO() ? 'hoy' : format(new Date(dateFrom + 'T12:00:00'), "d MMM yyyy", { locale: es }))
+              : `${format(new Date(dateFrom + 'T12:00:00'), "d MMM", { locale: es })} – ${format(new Date(dateTo + 'T12:00:00'), "d MMM yyyy", { locale: es })}`
+          }
         />
         <KpiCard
           icon={<CheckCheck className="h-4 w-4" />}
