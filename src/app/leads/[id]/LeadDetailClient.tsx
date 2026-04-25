@@ -9,7 +9,7 @@ import {
   ArrowLeft, Phone, Mail, Calendar, User, Bike, Headphones,
   CheckCircle2, TrendingUp, MessageSquare, MapPin, Hash,
   Smartphone, Loader2, ArrowRight, XCircle, AlertCircle,
-  BarChart3,
+  BarChart3, ChevronRight,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Input } from '@/components/ui/input';
@@ -57,8 +57,15 @@ type LeadFull = {
 
 type ModeloInfo = { id: string; name: string; family: string; cc: number | null } | null;
 
+type Inbound = {
+  id: string;
+  fecha_entrada: string;
+  origen: string;
+  formulario: string | null;
+};
+
 type TLEvent =
-  | { kind: 'entry'; date: string }
+  | { kind: 'entry'; date: string; isFirst: boolean; origen: string }
   | { kind: 'call'; date: string; data: any }
   | { kind: 'report'; date: string; data: any };
 
@@ -71,6 +78,7 @@ interface Props {
   sales: any[];
   reports: any[];
   models: { id: string; name: string; family: string }[];
+  inbounds: Inbound[];
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -209,7 +217,7 @@ function ModelCombobox({
 
 function TimelineItem({ ev }: { ev: TLEvent }) {
   const dotCls = (() => {
-    if (ev.kind === 'entry')  return 'bg-slate-400 ring-slate-100';
+    if (ev.kind === 'entry')  return ev.isFirst ? 'bg-slate-400 ring-slate-100' : 'bg-blue-400 ring-blue-100';
     if (ev.kind === 'report') return 'bg-ymc-red ring-red-100';
     if (ev.kind === 'call')   return (ev.data.talk_time_s ?? 0) > 0 ? 'bg-green-400 ring-green-100' : 'bg-slate-200 ring-slate-50';
     return 'bg-slate-300 ring-slate-100';
@@ -220,11 +228,20 @@ function TimelineItem({ ev }: { ev: TLEvent }) {
       <span className={`absolute -left-[33px] top-1.5 h-3 w-3 rounded-full ring-4 ${dotCls}`} />
       {ev.kind === 'entry' && (
         <div>
-          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-0.5">Entrada como lead</div>
-          <div className="text-sm font-medium text-slate-800">
-            {format(new Date(ev.date), "EEEE d 'de' MMMM yyyy", { locale: es })}
-            {entryHasTime(ev.date) && (
-              <span className="text-muted-foreground"> · {format(new Date(ev.date), 'HH:mm')}</span>
+          <div className={`text-[10px] font-bold uppercase tracking-widest mb-0.5 ${ev.isFirst ? 'text-slate-500' : 'text-blue-600'}`}>
+            {ev.isFirst ? 'Entrada como lead' : 'Vuelve a entrar como lead'}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-sm font-medium text-slate-800">
+              {format(new Date(ev.date), "EEEE d 'de' MMMM yyyy", { locale: es })}
+              {entryHasTime(ev.date) && (
+                <span className="text-muted-foreground"> · {format(new Date(ev.date), 'HH:mm')}</span>
+              )}
+            </div>
+            {ev.origen && (
+              <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0">
+                {ORIGIN_LABEL[ev.origen as LeadOrigin] ?? ev.origen}
+              </Badge>
             )}
           </div>
         </div>
@@ -298,6 +315,7 @@ export default function LeadDetailClient({
   sales,
   reports,
   models,
+  inbounds,
 }: Props) {
   const supabase = createClient();
 
@@ -362,10 +380,32 @@ export default function LeadDetailClient({
     ? (NO_INTEREST_REASON_LABEL[lead.lost_reason as NoInterestReason] ?? friendlyResult(lead.lost_reason))
     : null;
 
-  // Timeline: solo entrada + llamadas + reportes (citas/ventas ya están en sidebar)
+  // Channel path: inbounds sorted ASC, dedupe consecutive same-channel
+  const inboundsSorted = [...inbounds].sort(
+    (a, b) => new Date(a.fecha_entrada).getTime() - new Date(b.fecha_entrada).getTime()
+  );
+  const channelPath: string[] = [];
+  for (const ib of inboundsSorted) {
+    if (channelPath[channelPath.length - 1] !== ib.origen) {
+      channelPath.push(ib.origen);
+    }
+  }
+  // Fallback: if no inbounds, use lead.origen
+  if (channelPath.length === 0 && lead.origen) channelPath.push(lead.origen);
+
+  // Timeline: entry events from inbounds + llamadas + reportes (citas/ventas ya están en sidebar)
   const MIN_VALID = new Date('2020-01-01').getTime();
+  const entryEvents: TLEvent[] = inboundsSorted.length > 0
+    ? inboundsSorted.map((ib, i) => ({
+        kind: 'entry' as const,
+        date: ib.fecha_entrada,
+        isFirst: i === 0,
+        origen: ib.origen,
+      }))
+    : [{ kind: 'entry' as const, date: lead.fecha_entrada, isFirst: true, origen: lead.origen }];
+
   const tlEvents: TLEvent[] = [
-    { kind: 'entry' as const, date: lead.fecha_entrada },
+    ...entryEvents,
     ...calls.map(c => ({ kind: 'call' as const, date: c.call_at, data: c })),
     ...reports.map(r => ({ kind: 'report' as const, date: r.created_at, data: r })),
   ]
@@ -394,11 +434,20 @@ export default function LeadDetailClient({
                   <span className={`h-2 w-2 rounded-full ${statusCfg.dot}`} />
                   {statusCfg.label}
                 </span>
-                {/* Canal de entrada */}
-                {lead.origen && (
-                  <Badge variant="secondary" className="font-normal text-xs">
-                    {ORIGIN_LABEL[lead.origen as LeadOrigin] ?? lead.origen}
-                  </Badge>
+                {/* Canal de entrada (multi-channel path) */}
+                {channelPath.length > 0 && (
+                  <span className="inline-flex items-center gap-1 flex-wrap">
+                    {channelPath.map((ch, i) => (
+                      <span key={i} className="inline-flex items-center gap-1">
+                        <Badge variant="secondary" className="font-normal text-xs">
+                          {ORIGIN_LABEL[ch as LeadOrigin] ?? ch}
+                        </Badge>
+                        {i < channelPath.length - 1 && (
+                          <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                        )}
+                      </span>
+                    ))}
+                  </span>
                 )}
                 <span className="text-xs text-muted-foreground">
                   · lead desde {format(new Date(lead.fecha_entrada), "d MMM yyyy", { locale: es })}
