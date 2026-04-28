@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import Image from 'next/image';
-import { Calendar, Home, Users, BarChart3, Headphones } from 'lucide-react';
+import { Calendar, Home, Users, BarChart3, Headphones, BarChart2, User } from 'lucide-react';
 import type { Commercial } from '@/lib/types';
 import SignOutButton from './SignOutButton';
 import MobileNav from './MobileNav';
@@ -68,7 +68,23 @@ export default async function AppShell({
         <nav className="flex-1 px-3 py-4 space-y-0.5 text-sm">
           <NavLink href="/" icon={<Home className="h-4 w-4" />} label="Inicio" />
           {(isCommercial || isManager) && (
-            <NavLink href="/appointments" icon={<Calendar className="h-4 w-4" />} label="Mis citas" />
+            <>
+              <NavLink
+                href="/comercial"
+                icon={<BarChart2 className="h-4 w-4" />}
+                label="Mi panel"
+              />
+              <NavLink
+                href="/comercial/citas"
+                icon={<Calendar className="h-4 w-4" />}
+                label="Mis citas"
+              />
+              <NavLink
+                href="/comercial/leads"
+                icon={<Users className="h-4 w-4" />}
+                label="Mis leads"
+              />
+            </>
           )}
           {isManager && (
             <NavLink
@@ -79,13 +95,20 @@ export default async function AppShell({
           )}
           {isManager && (
             <>
-              <NavLink href="/leads" icon={<Users className="h-4 w-4" />} label="Leads" />
+              <NavLink href="/leads" icon={<Users className="h-4 w-4" />} label="Todos los leads" />
               <NavLink
                 href="/dashboard"
                 icon={<BarChart3 className="h-4 w-4" />}
                 label="Analítica"
               />
             </>
+          )}
+          {(isCommercial || isManager) && (
+            <NavLink
+              href="/comercial/perfil"
+              icon={<User className="h-4 w-4" />}
+              label="Mi perfil"
+            />
           )}
         </nav>
         <div className="px-3 py-4 border-t space-y-2">

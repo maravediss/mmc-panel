@@ -200,14 +200,15 @@ export default async function HomePage() {
         {(commercial.role === 'comercial' || isManager) && (
           <AccessCard
             icon={<Calendar className="h-6 w-6" />}
-            title="Mis citas"
+            title="Mi panel"
             description={
               (apptsToday ?? 0) > 0
-                ? `Tienes ${apptsToday} cita${(apptsToday ?? 0) > 1 ? 's' : ''} hoy.`
-                : 'Revisa tus citas y cierra las pendientes.'
+                ? `Tienes ${apptsToday} cita${(apptsToday ?? 0) > 1 ? 's' : ''} hoy. KPIs, citas y cierre rápido.`
+                : 'Tu panel personal: KPIs, citas y cierre.'
             }
-            href="/"
-            cta="Ver agenda"
+            href="/comercial"
+            cta="Abrir panel"
+            accent={!isManager}
           />
         )}
         {isManager && (
@@ -259,7 +260,7 @@ export default async function HomePage() {
               (todayAppts ?? []).map((a: any) => (
                 <Link
                   key={a.id}
-                  href={`/appointments/${a.id}/close`}
+                  href={`/comercial/citas/${a.id}/cerrar`}
                   className="block rounded-md border p-3 hover:shadow-sm transition"
                 >
                   <div className="flex items-start justify-between gap-2 flex-wrap">

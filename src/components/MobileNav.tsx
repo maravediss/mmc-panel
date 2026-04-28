@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Menu, X, Home, Calendar, Headphones, Users, BarChart3 } from 'lucide-react';
+import { Menu, X, Home, Calendar, Headphones, Users, BarChart3, BarChart2, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import SignOutButton from './SignOutButton';
 import type { Commercial } from '@/lib/types';
@@ -58,12 +58,26 @@ export default function MobileNav({ commercial }: { commercial: Commercial | nul
             <nav className="flex-1 px-3 py-4 space-y-0.5 text-sm">
               <Item href="/" icon={<Home className="h-4 w-4" />} label="Inicio" onClose={() => setOpen(false)} />
               {(isCommercial || isManager) && (
-                <Item
-                  href="/appointments"
-                  icon={<Calendar className="h-4 w-4" />}
-                  label="Mis citas"
-                  onClose={() => setOpen(false)}
-                />
+                <>
+                  <Item
+                    href="/comercial"
+                    icon={<BarChart2 className="h-4 w-4" />}
+                    label="Mi panel"
+                    onClose={() => setOpen(false)}
+                  />
+                  <Item
+                    href="/comercial/citas"
+                    icon={<Calendar className="h-4 w-4" />}
+                    label="Mis citas"
+                    onClose={() => setOpen(false)}
+                  />
+                  <Item
+                    href="/comercial/leads"
+                    icon={<Users className="h-4 w-4" />}
+                    label="Mis leads"
+                    onClose={() => setOpen(false)}
+                  />
+                </>
               )}
               {isOperator && (
                 <Item
@@ -86,7 +100,7 @@ export default function MobileNav({ commercial }: { commercial: Commercial | nul
                   <Item
                     href="/leads"
                     icon={<Users className="h-4 w-4" />}
-                    label="Leads"
+                    label="Todos los leads"
                     onClose={() => setOpen(false)}
                   />
                   <Item
@@ -96,6 +110,14 @@ export default function MobileNav({ commercial }: { commercial: Commercial | nul
                     onClose={() => setOpen(false)}
                   />
                 </>
+              )}
+              {(isCommercial || isManager) && (
+                <Item
+                  href="/comercial/perfil"
+                  icon={<User className="h-4 w-4" />}
+                  label="Mi perfil"
+                  onClose={() => setOpen(false)}
+                />
               )}
             </nav>
             <div className="px-3 py-4 border-t space-y-2">

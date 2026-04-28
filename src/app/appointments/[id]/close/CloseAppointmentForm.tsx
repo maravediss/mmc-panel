@@ -21,12 +21,14 @@ export default function CloseAppointmentForm({
   existingNoSale,
   commercialId,
   canEdit,
+  redirectTo = '/',
 }: {
   appointment: any;
   existingSale: any;
   existingNoSale: any;
   commercialId: string;
   canEdit: boolean;
+  redirectTo?: string;
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -101,7 +103,7 @@ export default function CloseAppointmentForm({
       // 2) Si no asistió, no hay más. Listo.
       if (!attended) {
         toast.success('Cita cerrada como No asistió');
-        router.push('/');
+        router.push(redirectTo);
         router.refresh();
         return;
       }
@@ -166,7 +168,7 @@ export default function CloseAppointmentForm({
         toast.success('Cita cerrada sin venta');
       }
 
-      router.push('/');
+      router.push(redirectTo);
       router.refresh();
     });
   }
