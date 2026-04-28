@@ -34,7 +34,7 @@ import NotMeLink from '@/components/NotMeLink';
 
 export const dynamic = 'force-dynamic';
 
-const VALID_PERIODS: Period[] = ['today', '7d', '30d', 'month', 'quarter', 'year'];
+const VALID_PERIODS: Period[] = ['today', '7d', '30d', '90d', 'month', 'year', 'custom'];
 
 function eur(n: number | null | undefined) {
   return `${(Number(n) || 0).toLocaleString('es-ES', { maximumFractionDigits: 0 })} €`;
@@ -43,7 +43,7 @@ function eur(n: number | null | undefined) {
 export default async function ComercialDashboardPage({
   searchParams,
 }: {
-  searchParams: { period?: string; commercial?: string };
+  searchParams: { period?: string; commercial?: string; from?: string; to?: string };
 }) {
   const me = await getCurrentCommercial();
   if (!me) redirect('/login');
@@ -53,6 +53,8 @@ export default async function ComercialDashboardPage({
   const period: Period = VALID_PERIODS.includes(searchParams.period as Period)
     ? (searchParams.period as Period)
     : '30d';
+  const customFrom = searchParams.from;
+  const customTo = searchParams.to;
 
   const supabase = createClient();
 
@@ -105,8 +107,8 @@ export default async function ComercialDashboardPage({
   }
 
   // Resolver rangos
-  const cur = resolvePeriod(period);
-  const prev = previousPeriod(period);
+  const cur = resolvePeriod(period, undefined, { from: customFrom, to: customTo });
+  const prev = previousPeriod(period, undefined, { from: customFrom, to: customTo });
 
   // KPIs propios + KPIs media concesionario (sólo si manager o si quiere comparar)
   const [{ data: curRows }, { data: prevRows }, { data: nextAppts }, { data: pendingClose }] =
@@ -191,12 +193,11 @@ export default async function ComercialDashboardPage({
             </p>
           </div>
           {/* Manager: selector de comercial; Comercial: link "¿No eres X?" */}
-          <div className="flex flex-col items-end gap-1">
-            {isManager && allCommercials.length > 1 ? (
+          <div className="flex flex-col items-end gap-2">
+            {isManager && allCommercials.length > 1 && (
               <CommercialSelector commercials={allCommercials} value={targetId} />
-            ) : !isManager ? (
-              <NotMeLink name={firstName} />
-            ) : null}
+            )}
+            {!isManager && <NotMeLink name={firstName} />}
           </div>
         </div>
       </header>
@@ -208,7 +209,10 @@ export default async function ComercialDashboardPage({
             {isManager ? 'Panel del comercial' : 'Mi panel comercial'}
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {targetName} · período: {PERIOD_LABEL[period]}
+            {targetName} · período:{' '}
+            {period === 'custom' && customFrom && customTo
+              ? `${customFrom} → ${customTo}`
+              : PERIOD_LABEL[period]}
             {autoSelected && (
               <span className="ml-2 text-[10px] text-amber-600">
                 (auto-seleccionado — eres admin sin citas propias)
@@ -217,7 +221,7 @@ export default async function ComercialDashboardPage({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <PeriodSelector value={period} />
+          <PeriodSelector value={period} customFrom={customFrom} customTo={customTo} />
         </div>
       </div>
 
@@ -230,22 +234,22 @@ export default async function ComercialDashboardPage({
           sub={
             <span>
               <CheckCircle2 className="h-3 w-3 inline mr-1 text-green-600" />
-              {k.citas_atendidas ?? 0} acude · {k.citas_no_show ?? 0}{' '}
-              <XCircle className="h-3 w-3 inline -mt-0.5 text-red-600" />
+              {k.citas_atendidas ?? 0} asistieron · {k.citas_no_show ?? 0} no asistieron
+              <XCircle className="h-3 w-3 inline ml-1 -mt-0.5 text-red-600" />
             </span>
           }
           delta={
             <DeltaBadge current={k.citas_asignadas ?? 0} previous={kPrev.citas_asignadas ?? 0} />
           }
-          href={`/comercial/citas?period=${period}${
-            targetId !== me.id ? `&commercial=${targetId}` : ''
+          href={`/comercial/citas${
+            targetId !== me.id ? `?commercial=${targetId}` : ''
           }`}
         />
         <KPICard
           icon={<Target className="h-4 w-4" />}
-          label="% asistencia"
-          value={`${(k.asistencia_pct ?? 0).toFixed(0)}%`}
-          sub={`${k.citas_atendidas ?? 0} de ${k.citas_asignadas ?? 0}`}
+          label="% conversión cita → venta"
+          value={`${(k.conversion_pct ?? 0).toFixed(1)}%`}
+          sub={`${k.ventas_count ?? 0} de ${k.citas_asignadas ?? 0} citas`}
           color="sky"
         />
         <KPICard
@@ -254,7 +258,7 @@ export default async function ComercialDashboardPage({
           value={k.ventas_count ?? 0}
           sub={
             <span>
-              Conversión <strong>{(k.conversion_pct ?? 0).toFixed(0)}%</strong>
+              Asistencia <strong>{(k.asistencia_pct ?? 0).toFixed(0)}%</strong>
             </span>
           }
           delta={<DeltaBadge current={k.ventas_count ?? 0} previous={kPrev.ventas_count ?? 0} />}
@@ -327,6 +331,7 @@ export default async function ComercialDashboardPage({
                 avg={avg.conversion}
                 fmt={(n) => `${n.toFixed(1)}%`}
               />
+              {/* Nota: conversion_pct = ventas / citas no canceladas */}
             </div>
           </CardContent>
         </Card>
