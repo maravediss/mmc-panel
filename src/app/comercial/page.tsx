@@ -56,9 +56,22 @@ export default async function ComercialDashboardPage({
 
   const supabase = createClient();
 
-  // El gerente puede inspeccionar a otro comercial via ?commercial=ID
+  // Listado completo de comerciales activos (para el selector y para auto-seleccionar)
+  let allCommercials: { id: string; name: string; display_name: string | null }[] = [];
+  if (isManager) {
+    const { data } = await supabase
+      .from('mmc_commercials')
+      .select('id, name, display_name, role, is_active')
+      .eq('is_active', true)
+      .in('role', ['comercial', 'gerente'])
+      .order('name');
+    allCommercials = (data ?? []) as any;
+  }
+
+  // Resolver target — el gerente puede inspeccionar a otro comercial via ?commercial=ID
   let targetId = me.id;
   let targetName = me.display_name || me.name;
+  let autoSelected = false;
   if (isManager && searchParams.commercial) {
     const { data: c } = await supabase
       .from('mmc_commercials')
@@ -69,18 +82,26 @@ export default async function ComercialDashboardPage({
       targetId = c.id;
       targetName = c.display_name || c.name;
     }
-  }
-
-  // Listado completo de comerciales para el selector (solo manager)
-  let allCommercials: { id: string; name: string; display_name: string | null }[] = [];
-  if (isManager) {
-    const { data } = await supabase
-      .from('mmc_commercials')
-      .select('id, name, display_name, role, is_active')
-      .eq('is_active', true)
-      .in('role', ['comercial', 'gerente', 'admin'])
-      .order('name');
-    allCommercials = (data ?? []) as any;
+  } else if (isManager && allCommercials.length > 0) {
+    // Admin/gerente entrando sin selector: auto-seleccionamos el comercial con
+    // más citas para que no vea todo a 0 (admin no suele tener citas propias).
+    const { data: best } = await supabase
+      .from('mmc_appointments')
+      .select('commercial_id')
+      .not('commercial_id', 'is', null)
+      .limit(1000);
+    const counts: Record<string, number> = {};
+    (best ?? []).forEach((r: any) => {
+      counts[r.commercial_id] = (counts[r.commercial_id] || 0) + 1;
+    });
+    const ranked = allCommercials
+      .map((c) => ({ c, n: counts[c.id] || 0 }))
+      .sort((a, b) => b.n - a.n);
+    if (ranked[0] && ranked[0].n > 0) {
+      targetId = ranked[0].c.id;
+      targetName = ranked[0].c.display_name || ranked[0].c.name;
+      autoSelected = true;
+    }
   }
 
   // Resolver rangos
@@ -183,9 +204,16 @@ export default async function ComercialDashboardPage({
       {/* Sub-header de panel */}
       <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="font-display text-lg md:text-xl font-semibold">Mi panel comercial</h2>
+          <h2 className="font-display text-lg md:text-xl font-semibold">
+            {isManager ? 'Panel del comercial' : 'Mi panel comercial'}
+          </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             {targetName} · período: {PERIOD_LABEL[period]}
+            {autoSelected && (
+              <span className="ml-2 text-[10px] text-amber-600">
+                (auto-seleccionado — eres admin sin citas propias)
+              </span>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
