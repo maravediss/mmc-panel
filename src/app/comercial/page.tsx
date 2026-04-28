@@ -21,15 +21,13 @@ import { getCurrentCommercial } from '@/lib/session';
 import AppShell from '@/components/AppShell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { KPICard, PeriodSelector, DeltaBadge } from '@/components/KPISet';
 import {
-  KPICard,
-  PeriodSelector,
-  DeltaBadge,
   resolvePeriod,
   previousPeriod,
-  type Period,
   PERIOD_LABEL,
-} from '@/components/KPISet';
+  type Period,
+} from '@/lib/period';
 import { APPT_TYPE_LABEL } from '@/lib/mappings';
 import CommercialSelector from '@/components/CommercialSelector';
 
