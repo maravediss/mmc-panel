@@ -69,10 +69,17 @@ function parseCSV(text) {
 
 function parseDate(s) {
   if (!s) return null;
-  const m = String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m)
-    return new Date(`${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}T00:00:00Z`);
-  const d = new Date(s);
+  const raw = String(s).trim();
+  // Strip label prefix (e.g. "Fecha cita prueba moto: 25/04/2026") only if string starts with letters
+  const clean = /^\d/.test(raw) ? raw : raw.replace(/^[^:]*:\s*/i, '').trim();
+  if (!clean) return null;
+  // dd/mm/yyyy (with optional trailing time HH:MM:SS — ignored, only date extracted)
+  const m4 = clean.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (m4) {
+    const yr = m4[3].length === 2 ? `20${m4[3]}` : m4[3];
+    return new Date(`${yr}-${m4[2].padStart(2, '0')}-${m4[1].padStart(2, '0')}T00:00:00Z`);
+  }
+  const d = new Date(clean);
   return isNaN(d.getTime()) ? null : d;
 }
 

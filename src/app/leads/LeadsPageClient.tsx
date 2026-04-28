@@ -49,6 +49,12 @@ function todayISO(): string {
   return new Date().toISOString().split('T')[0];
 }
 
+function daysAgoISO(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().split('T')[0];
+}
+
 function fmtMinutes(min: number | null): string {
   if (min == null) return '—';
   if (min < 60) return `${min.toFixed(0)} min`;
@@ -99,7 +105,7 @@ function StatusCell({ status, proximaCita }: { status: string; proximaCita: stri
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function LeadsPageClient() {
-  const [dateFrom, setDateFrom]       = useState(todayISO());
+  const [dateFrom, setDateFrom]       = useState(daysAgoISO(30));
   const [dateTo,   setDateTo]         = useState(todayISO());
   const [search, setSearch]           = useState('');
   const [debouncedSearch, setDebounced] = useState('');

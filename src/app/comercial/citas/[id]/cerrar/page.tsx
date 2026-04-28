@@ -32,19 +32,26 @@ export default async function CerrarCitaPage({ params }: { params: { id: string 
   const lead = (appt as any).lead;
   const assigned = (appt as any).commercial;
 
-  const [{ data: sale }, { data: noSale }, { data: leadFull }] = await Promise.all([
-    supabase.from('mmc_sales').select('*').eq('appointment_id', appt.id).maybeSingle(),
-    supabase
-      .from('mmc_no_sale_reasons')
-      .select('*')
-      .eq('appointment_id', appt.id)
-      .maybeSingle(),
-    supabase
-      .from('mmc_v_lead_with_model')
-      .select('modelo_oficial, family, margen_estimado')
-      .eq('id', lead.id)
-      .maybeSingle(),
-  ]);
+  const [{ data: sale }, { data: noSale }, { data: leadFull }, { data: comerciales }] =
+    await Promise.all([
+      supabase.from('mmc_sales').select('*').eq('appointment_id', appt.id).maybeSingle(),
+      supabase
+        .from('mmc_no_sale_reasons')
+        .select('*')
+        .eq('appointment_id', appt.id)
+        .maybeSingle(),
+      supabase
+        .from('mmc_v_lead_with_model')
+        .select('modelo_oficial, family, margen_estimado')
+        .eq('id', lead.id)
+        .maybeSingle(),
+      supabase
+        .from('mmc_commercials')
+        .select('id, name, display_name, role')
+        .eq('is_active', true)
+        .in('role', ['comercial', 'gerente', 'admin'])
+        .order('name'),
+    ]);
 
   const d = new Date(appt.fecha_cita);
   const margenEst = (leadFull as any)?.margen_estimado;
@@ -158,10 +165,9 @@ export default async function CerrarCitaPage({ params }: { params: { id: string 
         existingSale={sale as any}
         existingNoSale={noSale as any}
         commercialId={me.id}
-        canEdit={
-          me.role !== 'comercial' || appt.commercial_id === me.id
-        }
+        canEdit={me.role !== 'comercial' || appt.commercial_id === me.id}
         redirectTo="/comercial/citas"
+        comerciales={(comerciales ?? []) as any}
       />
     </AppShell>
   );

@@ -45,6 +45,13 @@ export default async function CloseAppointmentPage({
     .eq('appointment_id', appt.id)
     .maybeSingle();
 
+  const { data: comerciales } = await supabase
+    .from('mmc_commercials')
+    .select('id, name, display_name, role')
+    .eq('is_active', true)
+    .in('role', ['comercial', 'gerente', 'admin'])
+    .order('name');
+
   const d = new Date(appt.fecha_cita);
 
   return (
@@ -129,6 +136,7 @@ export default async function CloseAppointmentPage({
           commercial.role !== 'comercial' ||
           appt.commercial_id === commercial.id
         }
+        comerciales={(comerciales ?? []) as any}
       />
     </AppShell>
   );

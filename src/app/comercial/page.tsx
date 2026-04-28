@@ -30,6 +30,7 @@ import {
 } from '@/lib/period';
 import { APPT_TYPE_LABEL } from '@/lib/mappings';
 import CommercialSelector from '@/components/CommercialSelector';
+import NotMeLink from '@/components/NotMeLink';
 
 export const dynamic = 'force-dynamic';
 
@@ -143,23 +144,54 @@ export default async function ComercialDashboardPage({
     };
   }
 
+  // Saludo personalizado por hora del día
+  const h = new Date().getHours();
+  const greeting =
+    h < 6
+      ? { hello: 'Buenas noches', emoji: '🌙' }
+      : h < 12
+      ? { hello: 'Buenos días', emoji: '☀️' }
+      : h < 20
+      ? { hello: 'Buenas tardes', emoji: '👋' }
+      : { hello: 'Buenas noches', emoji: '🌙' };
+  const firstName = (me.display_name || me.name).split(' ')[0];
+
   return (
     <AppShell commercial={me}>
-      {/* Header */}
-      <header className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      {/* Saludo */}
+      <header className="mb-6">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="font-display text-2xl md:text-3xl font-bold">
+              {greeting.hello}, {firstName} <span className="font-sans">{greeting.emoji}</span>
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              {format(new Date(), "EEEE, d 'de' MMMM 'de' yyyy", { locale: es })}
+            </p>
+          </div>
+          {/* Manager: selector de comercial; Comercial: link "¿No eres X?" */}
+          <div className="flex flex-col items-end gap-1">
+            {isManager && allCommercials.length > 1 ? (
+              <CommercialSelector commercials={allCommercials} value={targetId} />
+            ) : !isManager ? (
+              <NotMeLink name={firstName} />
+            ) : null}
+          </div>
+        </div>
+      </header>
+
+      {/* Sub-header de panel */}
+      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="font-display text-2xl md:text-3xl font-bold">Mi panel comercial</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {targetName} · {PERIOD_LABEL[period]}
+          <h2 className="font-display text-lg md:text-xl font-semibold">Mi panel comercial</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {targetName} · período: {PERIOD_LABEL[period]}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {isManager && allCommercials.length > 1 && (
-            <CommercialSelector commercials={allCommercials} value={targetId} />
-          )}
           <PeriodSelector value={period} />
         </div>
-      </header>
+      </div>
 
       {/* KPIs principales */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-5">

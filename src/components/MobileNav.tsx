@@ -3,7 +3,17 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Menu, X, Home, Calendar, Headphones, Users, BarChart3, BarChart2, User } from 'lucide-react';
+import {
+  Menu,
+  X,
+  Home,
+  Calendar,
+  Headphones,
+  Users,
+  BarChart3,
+  BarChart2,
+  User,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import SignOutButton from './SignOutButton';
 import type { Commercial } from '@/lib/types';
@@ -41,7 +51,10 @@ export default function MobileNav({ commercial }: { commercial: Commercial | nul
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 py-5 border-b flex items-start justify-between">
-              <Link href="/" onClick={() => setOpen(false)}>
+              <Link
+                href={isCommercial ? '/comercial' : '/'}
+                onClick={() => setOpen(false)}
+              >
                 <Image
                   src="/brand/ymc-logo-horizontal.svg"
                   alt="Yamaha Málaga Center"
@@ -51,12 +64,25 @@ export default function MobileNav({ commercial }: { commercial: Commercial | nul
                   className="h-7 w-auto"
                 />
               </Link>
-              <Button variant="ghost" size="icon" onClick={() => setOpen(false)} aria-label="Cerrar">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setOpen(false)}
+                aria-label="Cerrar"
+              >
                 <X className="h-5 w-5" />
               </Button>
             </div>
+
             <nav className="flex-1 px-3 py-4 space-y-0.5 text-sm">
-              <Item href="/" icon={<Home className="h-4 w-4" />} label="Inicio" onClose={() => setOpen(false)} />
+              {isManager && (
+                <Item
+                  href="/"
+                  icon={<Home className="h-4 w-4" />}
+                  label="Inicio"
+                  onClose={() => setOpen(false)}
+                />
+              )}
               {(isCommercial || isManager) && (
                 <>
                   <Item
@@ -72,9 +98,15 @@ export default function MobileNav({ commercial }: { commercial: Commercial | nul
                     onClose={() => setOpen(false)}
                   />
                   <Item
-                    href="/comercial/leads"
+                    href="/leads"
                     icon={<Users className="h-4 w-4" />}
-                    label="Mis leads"
+                    label="Todos los leads"
+                    onClose={() => setOpen(false)}
+                  />
+                  <Item
+                    href="/comercial/analitica"
+                    icon={<BarChart3 className="h-4 w-4" />}
+                    label="Analítica"
                     onClose={() => setOpen(false)}
                   />
                 </>
@@ -88,46 +120,45 @@ export default function MobileNav({ commercial }: { commercial: Commercial | nul
                 />
               )}
               {isManager && (
-                <Item
-                  href="/call-center"
-                  icon={<Headphones className="h-4 w-4" />}
-                  label="Call center"
-                  onClose={() => setOpen(false)}
-                />
-              )}
-              {isManager && (
                 <>
+                  <div className="mt-3 mb-1 px-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+                    Gestión
+                  </div>
                   <Item
-                    href="/leads"
-                    icon={<Users className="h-4 w-4" />}
-                    label="Todos los leads"
+                    href="/call-center"
+                    icon={<Headphones className="h-4 w-4" />}
+                    label="Call center"
                     onClose={() => setOpen(false)}
                   />
                   <Item
                     href="/dashboard"
                     icon={<BarChart3 className="h-4 w-4" />}
-                    label="Analítica"
+                    label="Analítica avanzada"
                     onClose={() => setOpen(false)}
                   />
                 </>
               )}
-              {(isCommercial || isManager) && (
-                <Item
-                  href="/comercial/perfil"
-                  icon={<User className="h-4 w-4" />}
-                  label="Mi perfil"
-                  onClose={() => setOpen(false)}
-                />
-              )}
             </nav>
+
             <div className="px-3 py-4 border-t space-y-2">
               {commercial && (
-                <div className="px-3 py-2 text-sm">
-                  <div className="font-medium truncate">
-                    {commercial.display_name || commercial.name}
+                <Link
+                  href="/comercial/perfil"
+                  onClick={() => setOpen(false)}
+                  className="block px-3 py-2 text-sm rounded-md hover:bg-slate-50"
+                >
+                  <div className="flex items-center gap-2">
+                    <User className="h-4 w-4 text-muted-foreground" />
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">
+                        {commercial.display_name || commercial.name}
+                      </div>
+                      <div className="text-xs text-muted-foreground capitalize">
+                        {commercial.role} · Mi perfil
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground capitalize">{commercial.role}</div>
-                </div>
+                </Link>
               )}
               <SignOutButton />
             </div>

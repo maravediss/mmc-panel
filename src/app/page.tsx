@@ -52,9 +52,12 @@ export default async function HomePage() {
     );
   }
 
-  // Operadoras van directamente a su panel, sin home
+  // Operadoras → su panel ; Comerciales → su panel
   if (commercial.role === 'operadora') {
     redirect('/operator');
+  }
+  if (commercial.role === 'comercial') {
+    redirect('/comercial');
   }
 
   const supabase = createClient();
@@ -197,18 +200,17 @@ export default async function HomePage() {
 
       {/* Accesos rápidos al módulo principal según rol */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        {(commercial.role === 'comercial' || isManager) && (
+        {isManager && (
           <AccessCard
             icon={<Calendar className="h-6 w-6" />}
-            title="Mi panel"
+            title="Panel comercial"
             description={
               (apptsToday ?? 0) > 0
-                ? `Tienes ${apptsToday} cita${(apptsToday ?? 0) > 1 ? 's' : ''} hoy. KPIs, citas y cierre rápido.`
-                : 'Tu panel personal: KPIs, citas y cierre.'
+                ? `${apptsToday} cita${(apptsToday ?? 0) > 1 ? 's' : ''} hoy. KPIs, citas y cierre rápido.`
+                : 'KPIs, citas y cierre por comercial.'
             }
             href="/comercial"
             cta="Abrir panel"
-            accent={!isManager}
           />
         )}
         {isManager && (
