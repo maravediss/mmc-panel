@@ -6,7 +6,6 @@ const MES_LABEL = [
   'ene', 'feb', 'mar', 'abr', 'may', 'jun',
   'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
 ];
-
 function mesLabel(yyyymm: string) {
   const [y, m] = yyyymm.split('-');
   return `${MES_LABEL[Number(m) - 1]} ${y.slice(2)}`;
@@ -30,219 +29,384 @@ export default function EvolutionChart({ data }: { data: MonthRow[] }) {
     return <p className="text-sm text-muted-foreground py-2">Sin datos.</p>;
   }
 
-  // Eje izquierdo: max(citas, ventas)
-  const maxLeft = Math.max(
-    ...data.map((d) => Math.max(d.citas, d.ventas)),
-    1
-  );
-  // Eje derecho: 0-100 (conversion %)
-  const maxRight = 100;
+  // Escalas separadas: izq = citas; der = ventas y % conversión (compartido visual)
+  const maxCitas = Math.max(...data.map((d) => d.citas), 1);
+  const maxVentas = Math.max(...data.map((d) => d.ventas), 1);
+  const niceMax = (n: number) => {
+    // Redondea a un múltiplo razonable para los ticks del eje
+    if (n <= 5) return 5;
+    if (n <= 10) return 10;
+    if (n <= 20) return 20;
+    if (n <= 50) return 50;
+    if (n <= 100) return 100;
+    return Math.ceil(n / 50) * 50;
+  };
+  const yLeftMax = niceMax(maxCitas);
+  const yRightMax = niceMax(maxVentas);
 
-  const chartHeight = 240;
-  const chartPaddingTop = 28;
-  const chartPaddingBottom = 30;
-  const innerHeight = chartHeight - chartPaddingTop - chartPaddingBottom;
+  // Dimensiones del SVG (viewBox)
+  const W = 1000;
+  const H = 380;
+  const PAD_L = 70;
+  const PAD_R = 70;
+  const PAD_T = 50;
+  const PAD_B = 60;
+  const innerW = W - PAD_L - PAD_R;
+  const innerH = H - PAD_T - PAD_B;
 
-  // Path para la línea de conversión
-  const stepWidth = 100 / data.length;
-  const pointXs = data.map((_, i) => stepWidth * (i + 0.5));
-  const pointYs = data.map((d) => {
-    const ratio = (d.conversion_pct || 0) / maxRight;
-    return chartPaddingTop + innerHeight * (1 - ratio);
-  });
-  const linePath = pointXs
-    .map((x, i) => `${i === 0 ? 'M' : 'L'} ${x} ${pointYs[i]}`)
+  const slot = innerW / data.length;
+  const barW = Math.min(36, slot / 3.2);
+  const gap = barW * 0.35;
+
+  // Helpers de proyección
+  const yFromLeft = (v: number) => PAD_T + innerH * (1 - v / yLeftMax);
+  const yFromRight = (v: number) => PAD_T + innerH * (1 - v / yRightMax);
+  const yFromConv = (v: number) => PAD_T + innerH * (1 - Math.min(100, v) / 100);
+
+  // Línea de conversión
+  const convPoints = data.map((d, i) => ({
+    x: PAD_L + slot * (i + 0.5),
+    y: yFromConv(d.conversion_pct || 0),
+    v: d.conversion_pct || 0,
+  }));
+  const convPath = convPoints
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`)
     .join(' ');
+
+  // Ticks del eje izquierdo (citas)
+  const leftTicks = [0, 0.25, 0.5, 0.75, 1].map((p) => ({
+    y: PAD_T + innerH * (1 - p),
+    label: Math.round(yLeftMax * p),
+  }));
+  // Ticks del eje derecho (ventas + conversión%)
+  const rightTicks = [0, 0.25, 0.5, 0.75, 1].map((p) => ({
+    y: PAD_T + innerH * (1 - p),
+    ventasLabel: Math.round(yRightMax * p),
+    convLabel: Math.round(100 * p),
+  }));
 
   return (
     <div className="w-full">
-      <div className="flex">
-        {/* Eje Y izquierdo (citas/ventas) */}
-        <div
-          className="flex flex-col justify-between pr-2 text-[10px] text-muted-foreground tabular-nums"
-          style={{
-            height: chartHeight,
-            paddingTop: chartPaddingTop - 6,
-            paddingBottom: chartPaddingBottom - 6,
-          }}
-        >
-          <span>{maxLeft}</span>
-          <span>{Math.round(maxLeft * 0.75)}</span>
-          <span>{Math.round(maxLeft * 0.5)}</span>
-          <span>{Math.round(maxLeft * 0.25)}</span>
-          <span>0</span>
-        </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" style={{ minHeight: 320 }}>
+        {/* Grid horizontal */}
+        {leftTicks.map((t, i) => (
+          <line
+            key={i}
+            x1={PAD_L}
+            x2={W - PAD_R}
+            y1={t.y}
+            y2={t.y}
+            className="stroke-slate-200"
+            strokeWidth="1"
+            strokeDasharray={i === 0 ? '0' : '3 3'}
+          />
+        ))}
 
-        {/* Área del gráfico */}
-        <div
-          className="relative flex-1 border-l border-r"
-          style={{ height: chartHeight }}
-        >
-          {/* Líneas guía horizontales */}
-          {[0.25, 0.5, 0.75].map((p) => (
-            <div
-              key={p}
-              className="absolute left-0 right-0 border-t border-dashed border-slate-100"
-              style={{ top: chartPaddingTop + innerHeight * (1 - p) }}
+        {/* Eje X */}
+        <line
+          x1={PAD_L}
+          x2={W - PAD_R}
+          y1={H - PAD_B}
+          y2={H - PAD_B}
+          className="stroke-slate-400"
+          strokeWidth="1.5"
+        />
+        {/* Eje Y izquierdo */}
+        <line
+          x1={PAD_L}
+          x2={PAD_L}
+          y1={PAD_T}
+          y2={H - PAD_B}
+          className="stroke-slate-400"
+          strokeWidth="1.5"
+        />
+        {/* Eje Y derecho */}
+        <line
+          x1={W - PAD_R}
+          x2={W - PAD_R}
+          y1={PAD_T}
+          y2={H - PAD_B}
+          className="stroke-slate-400"
+          strokeWidth="1.5"
+        />
+
+        {/* Etiquetas eje izq (citas) */}
+        {leftTicks.map((t, i) => (
+          <g key={`left-${i}`}>
+            <line
+              x1={PAD_L - 6}
+              x2={PAD_L}
+              y1={t.y}
+              y2={t.y}
+              className="stroke-slate-400"
+              strokeWidth="1.5"
             />
-          ))}
-
-          {/* SVG para línea de conversión (eje derecho) */}
-          <svg
-            viewBox={`0 0 100 ${chartHeight}`}
-            preserveAspectRatio="none"
-            className="absolute inset-0 w-full h-full pointer-events-none"
-          >
-            {/* Líneas auxiliares de conversión (cada 25%) */}
-            {[25, 50, 75].map((v) => {
-              const y = chartPaddingTop + innerHeight * (1 - v / 100);
-              return (
-                <line
-                  key={v}
-                  x1="0"
-                  x2="100"
-                  y1={y}
-                  y2={y}
-                  className="stroke-slate-100"
-                  strokeWidth="0.2"
-                />
-              );
-            })}
-            {/* Línea de conversión */}
-            <path
-              d={linePath}
-              fill="none"
-              className="stroke-sky-500 transition-all duration-300"
-              strokeWidth="0.6"
-              vectorEffect="non-scaling-stroke"
-              style={{ strokeWidth: 2 }}
+            <text
+              x={PAD_L - 10}
+              y={t.y + 5}
+              textAnchor="end"
+              className="fill-slate-700"
+              fontSize="14"
+              fontWeight="500"
+            >
+              {t.label}
+            </text>
+          </g>
+        ))}
+        {/* Etiquetas eje der (ventas + %) */}
+        {rightTicks.map((t, i) => (
+          <g key={`right-${i}`}>
+            <line
+              x1={W - PAD_R}
+              x2={W - PAD_R + 6}
+              y1={t.y}
+              y2={t.y}
+              className="stroke-slate-400"
+              strokeWidth="1.5"
             />
-            {/* Puntos sobre la línea */}
-            {pointXs.map((x, i) => (
-              <circle
-                key={i}
-                cx={x}
-                cy={pointYs[i]}
-                r="0.8"
-                className="fill-sky-500"
-                vectorEffect="non-scaling-stroke"
-                style={{ r: 4 }}
-              />
-            ))}
-          </svg>
+            <text
+              x={W - PAD_R + 10}
+              y={t.y + 5}
+              textAnchor="start"
+              className="fill-ymc-red"
+              fontSize="13"
+              fontWeight="600"
+            >
+              {t.ventasLabel}
+            </text>
+            <text
+              x={W - PAD_R + 10}
+              y={t.y + 20}
+              textAnchor="start"
+              className="fill-sky-600"
+              fontSize="11"
+              fontWeight="500"
+            >
+              {t.convLabel}%
+            </text>
+          </g>
+        ))}
 
-          {/* Barras */}
-          <div className="absolute inset-0 flex items-end px-1">
-            {data.map((d, i) => {
-              const hC = (d.citas / maxLeft) * innerHeight;
-              const hV = (d.ventas / maxLeft) * innerHeight;
-              const isHover = hovered === i;
-              return (
-                <div
-                  key={d.mes}
-                  className="flex-1 flex flex-col items-center justify-end gap-0 min-w-0 relative px-0.5"
-                  style={{ height: chartHeight }}
-                  onMouseEnter={() => setHovered(i)}
-                  onMouseLeave={() => setHovered(null)}
-                >
-                  {/* Tooltip */}
-                  {isHover && (
-                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 -translate-y-full z-10 bg-slate-900 text-white text-[11px] rounded-md px-2.5 py-1.5 shadow-lg whitespace-nowrap pointer-events-none">
-                      <div className="font-semibold capitalize mb-1">{mesLabel(d.mes)}</div>
-                      <div className="space-y-0.5">
-                        <div className="inline-flex items-center gap-1.5">
-                          <span className="h-2 w-2 rounded-sm bg-amber-400 inline-block" />
-                          Citas: <strong>{d.citas}</strong>
-                        </div>
-                        <div className="inline-flex items-center gap-1.5">
-                          <span className="h-2 w-2 rounded-sm bg-ymc-red inline-block" />
-                          Ventas: <strong>{d.ventas}</strong>
-                        </div>
-                        <div className="inline-flex items-center gap-1.5">
-                          <span className="h-2 w-2 rounded-sm bg-sky-500 inline-block" />
-                          Conv.: <strong>{d.conversion_pct.toFixed(1)}%</strong>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex items-end justify-center gap-0.5 w-full"
-                       style={{ height: innerHeight, marginBottom: chartPaddingBottom }}>
-                    {/* Barra citas (amber) */}
-                    <div
-                      className={`w-full max-w-[18px] bg-amber-400 rounded-t transition-all duration-300 ease-out relative ${
-                        isHover ? 'opacity-100 ring-2 ring-amber-300' : 'opacity-90 hover:opacity-100'
-                      }`}
-                      style={{ height: hC || 1 }}
-                      title={`Citas: ${d.citas}`}
-                    >
-                      {(isHover || data.length <= 6) && d.citas > 0 && (
-                        <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] font-semibold text-amber-700">
-                          {d.citas}
-                        </span>
-                      )}
-                    </div>
-                    {/* Barra ventas (red) */}
-                    <div
-                      className={`w-full max-w-[18px] bg-ymc-red rounded-t transition-all duration-300 ease-out relative ${
-                        isHover ? 'opacity-100 ring-2 ring-ymc-red/30' : 'opacity-90 hover:opacity-100'
-                      }`}
-                      style={{ height: hV || 1 }}
-                      title={`Ventas: ${d.ventas}`}
-                    >
-                      {(isHover || data.length <= 6) && d.ventas > 0 && (
-                        <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] font-semibold text-ymc-red">
-                          {d.ventas}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Etiqueta del mes */}
-                  <span
-                    className={`absolute bottom-1 left-0 right-0 text-center text-[10px] capitalize ${
-                      isHover ? 'text-foreground font-medium' : 'text-muted-foreground'
-                    }`}
-                  >
-                    {mesLabel(d.mes)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Eje Y derecho (conversion %) */}
-        <div
-          className="flex flex-col justify-between pl-2 text-[10px] text-sky-600 tabular-nums"
-          style={{
-            height: chartHeight,
-            paddingTop: chartPaddingTop - 6,
-            paddingBottom: chartPaddingBottom - 6,
-          }}
+        {/* Títulos de los ejes */}
+        <text
+          x={PAD_L - 50}
+          y={PAD_T - 18}
+          className="fill-amber-600 font-semibold"
+          fontSize="13"
+          textAnchor="start"
         >
-          <span>100%</span>
-          <span>75%</span>
-          <span>50%</span>
-          <span>25%</span>
-          <span>0%</span>
-        </div>
-      </div>
-
-      {/* Leyenda */}
-      <div className="flex items-center justify-center gap-5 text-xs mt-1">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-2.5 w-3 bg-amber-400 rounded-sm" /> Citas
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-2.5 w-3 bg-ymc-red rounded-sm" /> Ventas
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <svg width="20" height="6">
-            <line x1="0" y1="3" x2="20" y2="3" className="stroke-sky-500" strokeWidth="2" />
-            <circle cx="10" cy="3" r="2" className="fill-sky-500" />
-          </svg>
+          Citas
+        </text>
+        <text
+          x={W - PAD_R + 10}
+          y={PAD_T - 18}
+          className="fill-ymc-red font-semibold"
+          fontSize="13"
+        >
+          Ventas
+        </text>
+        <text
+          x={W - PAD_R + 10}
+          y={PAD_T - 4}
+          className="fill-sky-600 font-semibold"
+          fontSize="11"
+        >
           % Conversión
+        </text>
+
+        {/* Barras + etiquetas X */}
+        {data.map((d, i) => {
+          const cx = PAD_L + slot * (i + 0.5);
+          const xCitas = cx - barW - gap / 2;
+          const xVentas = cx + gap / 2;
+          const yCitas = yFromLeft(d.citas);
+          const yVentas = yFromRight(d.ventas);
+          const isHover = hovered === i;
+          return (
+            <g
+              key={d.mes}
+              onMouseEnter={() => setHovered(i)}
+              onMouseLeave={() => setHovered(null)}
+              style={{ cursor: 'pointer' }}
+            >
+              {/* Hit area */}
+              <rect
+                x={PAD_L + slot * i}
+                y={PAD_T}
+                width={slot}
+                height={innerH}
+                fill="transparent"
+              />
+
+              {/* Highlight columna en hover */}
+              {isHover && (
+                <rect
+                  x={PAD_L + slot * i}
+                  y={PAD_T}
+                  width={slot}
+                  height={innerH}
+                  className="fill-ymc-redLight"
+                  opacity="0.5"
+                />
+              )}
+
+              {/* Barra citas (izq, amber) */}
+              <rect
+                x={xCitas}
+                y={yCitas}
+                width={barW}
+                height={H - PAD_B - yCitas}
+                rx="3"
+                className={`fill-amber-400 transition-all duration-200 ${
+                  isHover ? 'fill-amber-500' : ''
+                }`}
+              />
+              {d.citas > 0 && (
+                <text
+                  x={xCitas + barW / 2}
+                  y={yCitas - 6}
+                  textAnchor="middle"
+                  className="fill-amber-700 font-semibold"
+                  fontSize="13"
+                >
+                  {d.citas}
+                </text>
+              )}
+
+              {/* Barra ventas (der, red) */}
+              <rect
+                x={xVentas}
+                y={yVentas}
+                width={barW}
+                height={H - PAD_B - yVentas}
+                rx="3"
+                className={`fill-ymc-red transition-all duration-200 ${
+                  isHover ? 'opacity-100' : 'opacity-90'
+                }`}
+              />
+              {d.ventas > 0 && (
+                <text
+                  x={xVentas + barW / 2}
+                  y={yVentas - 6}
+                  textAnchor="middle"
+                  className="fill-ymc-red font-semibold"
+                  fontSize="13"
+                >
+                  {d.ventas}
+                </text>
+              )}
+
+              {/* Etiqueta del mes */}
+              <text
+                x={cx}
+                y={H - PAD_B + 24}
+                textAnchor="middle"
+                className={`capitalize ${
+                  isHover ? 'fill-foreground font-semibold' : 'fill-slate-600'
+                }`}
+                fontSize="14"
+              >
+                {mesLabel(d.mes)}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Línea conversión (encima de las barras) */}
+        <path
+          d={convPath}
+          fill="none"
+          className="stroke-sky-500"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {/* Puntos + etiquetas conversión */}
+        {convPoints.map((p, i) => (
+          <g key={`pt-${i}`}>
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={hovered === i ? 7 : 5}
+              className="fill-white stroke-sky-500 transition-all duration-200"
+              strokeWidth="3"
+            />
+            {p.v > 0 && (
+              <text
+                x={p.x}
+                y={p.y - 12}
+                textAnchor="middle"
+                className="fill-sky-700 font-semibold"
+                fontSize="12"
+              >
+                {p.v.toFixed(0)}%
+              </text>
+            )}
+          </g>
+        ))}
+
+        {/* Tooltip al hover */}
+        {hovered !== null && (() => {
+          const d = data[hovered];
+          const cx = PAD_L + slot * (hovered + 0.5);
+          const tooltipW = 180;
+          const tooltipH = 100;
+          const tx = Math.min(W - PAD_R - tooltipW, Math.max(PAD_L, cx - tooltipW / 2));
+          const ty = PAD_T + 8;
+          return (
+            <g pointerEvents="none">
+              <rect
+                x={tx}
+                y={ty}
+                width={tooltipW}
+                height={tooltipH}
+                rx="6"
+                className="fill-slate-900"
+                opacity="0.95"
+              />
+              <text x={tx + 12} y={ty + 22} className="fill-white font-bold capitalize" fontSize="14">
+                {mesLabel(d.mes)}
+              </text>
+              <circle cx={tx + 14} cy={ty + 42} r="4" className="fill-amber-400" />
+              <text x={tx + 24} y={ty + 46} className="fill-white" fontSize="13">
+                Citas: <tspan fontWeight="bold">{d.citas}</tspan>
+              </text>
+              <circle cx={tx + 14} cy={ty + 62} r="4" className="fill-ymc-red" />
+              <text x={tx + 24} y={ty + 66} className="fill-white" fontSize="13">
+                Ventas: <tspan fontWeight="bold">{d.ventas}</tspan>
+              </text>
+              <circle cx={tx + 14} cy={ty + 82} r="4" className="fill-sky-400" />
+              <text x={tx + 24} y={ty + 86} className="fill-white" fontSize="13">
+                Conv.: <tspan fontWeight="bold">{d.conversion_pct.toFixed(1)}%</tspan>
+              </text>
+            </g>
+          );
+        })()}
+      </svg>
+
+      {/* Leyenda inferior */}
+      <div className="flex items-center justify-center gap-6 text-sm mt-2">
+        <span className="inline-flex items-center gap-2">
+          <span className="h-3 w-4 bg-amber-400 rounded-sm" />
+          <span className="text-slate-700 font-medium">Citas</span>
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <span className="h-3 w-4 bg-ymc-red rounded-sm" />
+          <span className="text-slate-700 font-medium">Ventas</span>
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <svg width="24" height="10">
+            <line
+              x1="0"
+              y1="5"
+              x2="24"
+              y2="5"
+              className="stroke-sky-500"
+              strokeWidth="3"
+            />
+            <circle cx="12" cy="5" r="3" className="fill-white stroke-sky-500" strokeWidth="2" />
+          </svg>
+          <span className="text-slate-700 font-medium">% Conversión</span>
         </span>
       </div>
     </div>

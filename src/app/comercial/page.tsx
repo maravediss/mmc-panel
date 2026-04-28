@@ -145,26 +145,31 @@ export default async function ComercialDashboardPage({
   const k = (curRows && curRows[0]) || ({} as any);
   const kPrev = (prevRows && prevRows[0]) || ({} as any);
 
-  // Media del concesionario en este período (sólo si manager)
+  // Media del concesionario: en lugar de N RPC calls (lento), usamos el RPC
+  // agregado mmc_commercials_analytics que ya devuelve todos los comerciales
+  // en una sola llamada.
   let avg: { citas: number; ventas: number; margen: number; conversion: number } | null = null;
   if (isManager && allCommercials.length > 0) {
-    const promises = allCommercials.map((c) =>
-      supabase.rpc('mmc_commercial_kpis', {
-        p_commercial_id: c.id,
-        p_from: cur.from.toISOString(),
-        p_to: cur.to.toISOString(),
-      })
+    const { data: agg } = await supabase.rpc('mmc_commercials_analytics', {
+      p_from: cur.from.toISOString(),
+      p_to: cur.to.toISOString(),
+    });
+    const list: any[] = ((agg as any)?.commercials || []).filter(
+      (c: any) => c.role !== 'admin'
     );
-    const results = await Promise.all(promises);
-    const rows = results.map((r) => (r.data && r.data[0]) || {});
-    const n = rows.length || 1;
-    avg = {
-      citas: rows.reduce((s, r: any) => s + (r.citas_asignadas || 0), 0) / n,
-      ventas: rows.reduce((s, r: any) => s + (r.ventas_count || 0), 0) / n,
-      margen: rows.reduce((s, r: any) => s + Number(r.ventas_margen_eur || 0), 0) / n,
-      conversion:
-        rows.reduce((s, r: any) => s + Number(r.conversion_pct || 0), 0) / n,
-    };
+    if (list.length > 0) {
+      const n = list.length;
+      avg = {
+        citas: list.reduce((s, r) => s + (r.citas || 0), 0) / n,
+        ventas: list.reduce((s, r) => s + (r.ventas_n || 0), 0) / n,
+        margen: list.reduce((s, r) => s + Number(r.ventas_margen || 0), 0) / n,
+        conversion:
+          list.reduce((s, r) => {
+            const c = r.citas > 0 ? Math.min(100, (r.ventas_n / r.citas) * 100) : 0;
+            return s + c;
+          }, 0) / n,
+      };
+    }
   }
 
   // Saludo personalizado por hora del día
