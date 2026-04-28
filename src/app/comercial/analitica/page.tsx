@@ -11,13 +11,15 @@ import {
   Flame,
   Bike,
   LineChart as LineChartIcon,
-  Users,
+  Calendar,
+  UserCheck,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { getCurrentCommercial } from '@/lib/session';
 import AppShell from '@/components/AppShell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { KPICard, PeriodSelector } from '@/components/KPISet';
+import EvolutionChart from '@/components/EvolutionChart';
 import { resolvePeriod, PERIOD_LABEL, type Period } from '@/lib/period';
 
 export const dynamic = 'force-dynamic';
@@ -120,11 +122,11 @@ export default async function AnaliticaPage({
   const pipelineMargenTotal = Number(totals.pipeline_margen_total || 0);
   const pipelineLeadsTotal = totals.pipeline_total || 0;
   const margenPerdidoTotal = Number(totals.margen_perdido_total || 0);
-  const ticketGlobal = Number(totals.ticket_global || 0);
-  const leadsNuevos = totals.leads_nuevos || 0;
-  // Conversión robusta: ventas / citas no canceladas
+  const margenMedio = Number(totals.margen_medio || 0);
+  // Conversión = ventas / citas, capeada a 100% (ventas walk-in pueden no
+  // tener cita previa registrada)
   const conversionGlobal =
-    citasTotales > 0 ? (ventasTotales / citasTotales) * 100 : 0;
+    citasTotales > 0 ? Math.min(100, (ventasTotales / citasTotales) * 100) : 0;
   const asistenciaGlobal =
     citasTotales > 0 ? (atendidasTotales / citasTotales) * 100 : 0;
 
@@ -142,18 +144,15 @@ export default async function AnaliticaPage({
     (a, b) => Number(b.margen_perdido || 0) - Number(a.margen_perdido || 0)
   );
 
-  // Datos para gráfica evolutiva
-  const maxVentas = Math.max(...evo.map((m) => m.ventas), 1);
-  const maxMargen = Math.max(...evo.map((m) => Number(m.margen_eur)), 1);
-  const maxLeads = Math.max(...evo.map((m) => m.leads_nuevos), 1);
-
   // Totales del histórico evolutivo
-  const evoTotalLeads = evo.reduce((s, m) => s + (m.leads_nuevos || 0), 0);
   const evoTotalCitas = evo.reduce((s, m) => s + (m.citas || 0), 0);
+  const evoTotalAtendidas = evo.reduce((s, m) => s + (m.atendidas || 0), 0);
   const evoTotalVentas = evo.reduce((s, m) => s + (m.ventas || 0), 0);
   const evoTotalMargen = evo.reduce((s, m) => s + Number(m.margen_eur || 0), 0);
-  const evoConversion = evoTotalCitas > 0 ? (evoTotalVentas / evoTotalCitas) * 100 : 0;
-  const evoTicketMedio = evoTotalVentas > 0 ? evoTotalMargen / evoTotalVentas : 0;
+  // Conversion capeada a 100% (ventas walk-in pueden no tener cita)
+  const evoConversion =
+    evoTotalCitas > 0 ? Math.min(100, (evoTotalVentas / evoTotalCitas) * 100) : 0;
+  const evoMargenMedio = evoTotalVentas > 0 ? evoTotalMargen / evoTotalVentas : 0;
 
   const periodLabel =
     period === 'custom' && customFrom && customTo
@@ -183,32 +182,38 @@ export default async function AnaliticaPage({
           <TrendingUp className="h-5 w-5 text-ymc-red" />
           Resumen del período
         </h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
           <KPICard
-            icon={<Users className="h-4 w-4" />}
-            label="Leads nuevos"
-            value={num(leadsNuevos)}
-            sub="Entrados en el período"
+            icon={<Calendar className="h-4 w-4" />}
+            label="Citas concertadas"
+            value={num(citasTotales)}
+            sub="No canceladas en el período"
+          />
+          <KPICard
+            icon={<UserCheck className="h-4 w-4" />}
+            label="Citas atendidas"
+            value={num(atendidasTotales)}
+            sub={`${asistenciaGlobal.toFixed(0)}% asistencia`}
+            color="sky"
           />
           <KPICard
             icon={<Trophy className="h-4 w-4" />}
             label="Ventas cerradas"
             value={ventasTotales}
-            sub={`${num(citasTotales)} citas · ${num(atendidasTotales)} asistieron`}
             color="green"
           />
           <KPICard
             icon={<Euro className="h-4 w-4" />}
-            label="Margen facturado"
+            label="Margen conseguido"
             value={eur(margenTotal)}
-            sub={`Ticket medio ${eur(ticketGlobal)}`}
+            sub={`Margen medio ${eur(margenMedio)}`}
             color="green"
           />
           <KPICard
             icon={<Target className="h-4 w-4" />}
             label="% Conversión"
             value={pct(conversionGlobal)}
-            sub={`Asistencia ${asistenciaGlobal.toFixed(0)}%`}
+            sub="ventas / citas concertadas"
             color="sky"
           />
         </div>
@@ -251,110 +256,24 @@ export default async function AnaliticaPage({
           </span>
         </h2>
 
-        {/* Totales del histórico evolutivo (independiente del período) */}
+        {/* Totales acumulados del histórico */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4 mb-4">
-          <Mini label="Total leads" value={num(evoTotalLeads)} />
-          <Mini label="Total citas" value={num(evoTotalCitas)} />
-          <Mini label="Total ventas" value={num(evoTotalVentas)} color="green" />
+          <Mini label="Citas concertadas" value={num(evoTotalCitas)} />
+          <Mini label="Atendidas" value={num(evoTotalAtendidas)} color="sky" />
+          <Mini label="Ventas" value={num(evoTotalVentas)} color="green" />
           <Mini label="Margen acum." value={eur(evoTotalMargen)} color="green" />
           <Mini label="Conv. acum." value={pct(evoConversion)} color="sky" />
         </div>
 
-        {/* Gráfica de barras evolutiva (3 series por mes) */}
+        {/* Gráfica con doble eje y tooltips animados */}
         <Card className="mb-3">
           <CardHeader className="pb-2">
-            <CardTitle className="font-display text-base">Tendencia mensual</CardTitle>
+            <CardTitle className="font-display text-base">
+              Citas, ventas y % conversión por mes
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            {evo.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Sin datos.</p>
-            ) : (
-              <>
-                <div className="flex items-end justify-between gap-1 md:gap-3 h-48 mb-3 px-1">
-                  {evo.map((m) => {
-                    const hL = (m.leads_nuevos / maxLeads) * 100;
-                    const hC = (m.citas / Math.max(maxLeads / 5, 1)) * 100;
-                    const hV = (m.ventas / Math.max(maxVentas, 1)) * 100;
-                    return (
-                      <div
-                        key={m.mes}
-                        className="flex-1 flex flex-col items-center justify-end gap-1 min-w-0"
-                      >
-                        <div className="flex items-end gap-0.5 h-40 w-full">
-                          <div
-                            className="flex-1 bg-slate-300 rounded-t"
-                            style={{ height: `${hL}%` }}
-                            title={`Leads: ${m.leads_nuevos}`}
-                          />
-                          <div
-                            className="flex-1 bg-amber-400 rounded-t"
-                            style={{ height: `${hC}%` }}
-                            title={`Citas: ${m.citas}`}
-                          />
-                          <div
-                            className="flex-1 bg-ymc-red rounded-t"
-                            style={{ height: `${hV}%` }}
-                            title={`Ventas: ${m.ventas}`}
-                          />
-                        </div>
-                        <span className="text-[10px] text-muted-foreground">
-                          {mesLabel(m.mes)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="flex items-center justify-center gap-4 text-xs">
-                  <span className="inline-flex items-center gap-1">
-                    <span className="h-2 w-3 bg-slate-300 rounded-sm" /> Leads
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <span className="h-2 w-3 bg-amber-400 rounded-sm" /> Citas
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <span className="h-2 w-3 bg-ymc-red rounded-sm" /> Ventas
-                  </span>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Sparkline de margen € por mes */}
-        <Card className="mb-3">
-          <CardHeader className="pb-2">
-            <CardTitle className="font-display text-base">Margen € mensual</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {evo.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Sin datos.</p>
-            ) : (
-              <div className="flex items-end justify-between gap-2 h-32 px-1">
-                {evo.map((m) => {
-                  const h = (Number(m.margen_eur) / maxMargen) * 100;
-                  return (
-                    <div
-                      key={m.mes}
-                      className="flex-1 flex flex-col items-center justify-end gap-1 min-w-0"
-                    >
-                      <span className="text-[9px] text-muted-foreground tabular-nums">
-                        {Number(m.margen_eur) > 0
-                          ? eur(m.margen_eur)
-                          : ''}
-                      </span>
-                      <div
-                        className="w-full bg-green-600 rounded-t"
-                        style={{ height: `${h}%` }}
-                        title={`${eur(m.margen_eur)}`}
-                      />
-                      <span className="text-[10px] text-muted-foreground">
-                        {mesLabel(m.mes)}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <EvolutionChart data={evo as any} />
           </CardContent>
         </Card>
 
@@ -368,20 +287,18 @@ export default async function AnaliticaPage({
               <thead>
                 <tr className="border-b text-xs text-muted-foreground uppercase tracking-wide">
                   <th className="text-left py-2 px-2">Mes</th>
-                  <th className="text-right py-2 px-2">Leads</th>
-                  <th className="text-right py-2 px-2">Citas</th>
+                  <th className="text-right py-2 px-2">Citas concertadas</th>
                   <th className="text-right py-2 px-2">Asisten</th>
-                  <th className="text-right py-2 px-2">No asisten</th>
                   <th className="text-right py-2 px-2">Ventas</th>
                   <th className="text-right py-2 px-2">Margen €</th>
-                  <th className="text-right py-2 px-2">Ticket €</th>
+                  <th className="text-right py-2 px-2">Margen medio</th>
                   <th className="text-right py-2 px-2">Conv.</th>
                 </tr>
               </thead>
               <tbody>
                 {evo.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-6 text-center text-muted-foreground">
+                    <td colSpan={7} className="py-6 text-center text-muted-foreground">
                       Sin datos.
                     </td>
                   </tr>
@@ -389,15 +306,13 @@ export default async function AnaliticaPage({
                   evo.map((m) => (
                     <tr key={m.mes} className="border-b hover:bg-slate-50">
                       <td className="py-2 px-2 font-medium capitalize">{mesLabel(m.mes)}</td>
-                      <td className="text-right py-2 px-2">{m.leads_nuevos}</td>
                       <td className="text-right py-2 px-2">{m.citas}</td>
                       <td className="text-right py-2 px-2 text-green-700">{m.atendidas}</td>
-                      <td className="text-right py-2 px-2 text-red-600">{m.no_show}</td>
                       <td className="text-right py-2 px-2 font-semibold">{m.ventas}</td>
                       <td className="text-right py-2 px-2 font-semibold text-green-700">
                         {eur(m.margen_eur)}
                       </td>
-                      <td className="text-right py-2 px-2">{eur(m.ticket_medio_eur)}</td>
+                      <td className="text-right py-2 px-2">{eur(m.margen_medio_eur)}</td>
                       <td className="text-right py-2 px-2">{pct(m.conversion_pct)}</td>
                     </tr>
                   ))
@@ -405,19 +320,15 @@ export default async function AnaliticaPage({
                 {evo.length > 0 && (
                   <tr className="border-t-2 font-semibold bg-slate-50">
                     <td className="py-2 px-2">Total</td>
-                    <td className="text-right py-2 px-2">{num(evoTotalLeads)}</td>
                     <td className="text-right py-2 px-2">{num(evoTotalCitas)}</td>
                     <td className="text-right py-2 px-2 text-green-700">
-                      {num(evo.reduce((s, m) => s + m.atendidas, 0))}
-                    </td>
-                    <td className="text-right py-2 px-2 text-red-600">
-                      {num(evo.reduce((s, m) => s + m.no_show, 0))}
+                      {num(evoTotalAtendidas)}
                     </td>
                     <td className="text-right py-2 px-2">{num(evoTotalVentas)}</td>
                     <td className="text-right py-2 px-2 text-green-700">
                       {eur(evoTotalMargen)}
                     </td>
-                    <td className="text-right py-2 px-2">{eur(evoTicketMedio)}</td>
+                    <td className="text-right py-2 px-2">{eur(evoMargenMedio)}</td>
                     <td className="text-right py-2 px-2">{pct(evoConversion)}</td>
                   </tr>
                 )}
